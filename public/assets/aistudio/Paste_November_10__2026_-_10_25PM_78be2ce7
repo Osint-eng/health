@@ -1,0 +1,1368 @@
+bro can you help me in building an health care related app or web out of this info
+You are my senior full-stack product engineer, UX designer, AI systems architect, and healthcare-product advisor.
+Build a complete, production-minded MVP for a voice-first healthcare information assistant called “Arogya Voice.”
+IMPORTANT PRODUCT BOUNDARY
+This is NOT an AI doctor. It must not diagnose conditions, recommend personalized treatment, calculate medication dosages, generate prescriptions, interpret medical images, or provide a “you are safe / you are not at risk” symptom checker. It is a source-grounded health-information and healthcare-navigation assistant.
+The app helps users:
+1. Understand approved health-education material in simple language.
+2. Ask questions about a small, reviewed set of health topics.
+3. Prepare questions to ask a healthcare professional.
+4. Understand government healthcare-scheme eligibility, benefits, documents, and application guidance from official sources.
+5. See the exact source behind every answer.
+6. Listen to answers through text-to-speech while always retaining the visible text.
+Do not collect detailed medical histories in the MVP. Do not imply that a doctor is answering unless a real clinician service exists.
+TARGET USERS AND LANGUAGES
+Primary users: adults seeking general health information and healthcare-scheme guidance.
+Languages:
+- English: fully working in version 1.
+- Telugu: second language, enabled only after speech-recognition, translation, pronunciation, and TTS testing.
+MVP scope:
+- Guest access for basic public information.
+- Optional accounts for saving conversations.
+- Three narrowly selected health-education topics.
+- One healthcare-scheme information category.
+- Admin/reviewer interface for approved content.
+- Mobile-first responsive web app or PWA.
+CORE PRODUCT FLOW
+User speaks or types a question
+→ transcript is shown and can be edited
+→ system checks scope and safety
+→ approved documents are retrieved
+→ answer is generated only from retrieved evidence
+→ citations and source details are displayed
+→ answer is spoken aloud
+→ user can save, replay, or report the answer.
+The system must abstain, ask one clarifying question, or explain that it cannot answer when approved evidence is insufficient. It must never invent an answer or present a retrieval similarity score as medical confidence.
+REQUIRED ARCHITECTURE
+User application:
+- Mobile-first web app / PWA
+- Voice input, text input, transcript review
+- Source viewer, citations, audio playback
+- Accessible controls and clear loading/error states
+Backend:
+- FastAPI
+- Authentication and permissions
+- Rate limits
+- Consent management
+- Session ownership
+- Conversation orchestration
+- Safety and evidence policy
+- Admin APIs
+AI / retrieval pipeline:
+- Whisper for speech-to-text
+- BGE-M3 for multilingual embeddings
+- Chroma for approved-passage retrieval
+- Gemini initially for grounded answer generation
+- Ollama as an alternative/local deployment path
+- Piper for text-to-speech only if a suitable, licensed, tested Telugu voice exists
+- Evaluate AI4Bharat and BHASHINI as alternatives for Indian-language speech if Piper Telugu quality is inadequate
+Use interchangeable provider interfaces:
+SpeechToTextProvider.transcribe(audio, language)
+EmbeddingProvider.embed(text)
+Retriever.search(query, filters)
+AnswerProvider.generate(question, evidence)
+TextToSpeechProvider.synthesize(text, language)
+This allows replacing Whisper, Gemini, Ollama, Piper, or another provider without rebuilding the app.
+CONTENT PIPELINE
+Official documents
+→ upload or permitted import
+→ extract text / OCR if needed
+→ check source, date, jurisdiction, scope, and reuse permissions
+→ human review
+→ chunk text and attach source metadata
+→ generate embeddings using BGE-M3
+→ publish approved version to Chroma
+→ available for retrieval
+Keep speech datasets completely separate from the medical knowledge base. Voice recordings may be used to evaluate speech recognition or pronunciation, but never as evidence for health answers.
+SAFETY AND EVIDENCE POLICY
+Implement these rules in the backend, not only in the UI:
+- Restrict answers to approved topics and approved documents.
+- Detect possible urgent situations and route to reviewed urgent-help content.
+- Keep an always-visible urgent-help button independent of automated detection.
+- Block unsupported personalized treatment advice.
+- Verify that every citation refers to an existing approved chunk/document version.
+- Do not show unapproved, archived, superseded, or rejected documents in retrieval.
+- Do not silently fall back to an uncited general-model answer.
+- If TTS fails, preserve and display the text answer.
+- If retrieval fails, explain the limitation rather than answering without evidence.
+- Do not display fake confidence percentages such as “98% medically accurate.”
+- Use honest status labels:
+  - “Supported by reviewed sources.”
+  - “More information needed.”
+  - “No approved source found.”
+  - “This question needs a healthcare professional.”
+  - “Possible urgent situation — seek immediate help.”
+TECH STACK
+Frontend:
+- Next.js
+- React
+- TypeScript
+- Tailwind CSS
+- Reusable component library
+Backend:
+- FastAPI
+- PostgreSQL
+- Chroma
+- Background worker for ingestion and expensive processing
+- Private object storage for source documents and optional generated audio
+- Managed authentication provider
+- Optional Redis/job queue if needed
+AI services:
+- Whisper
+- BGE-M3
+- Chroma
+- Gemini initially
+- Ollama as an alternative
+- Piper or a validated Indian-language TTS alternative
+Do not use a microservices-heavy architecture for the MVP. Start with one modular backend plus separate workers where necessary. Add Pipecat for real-time streaming voice only after the record–submit–respond flow works reliably.
+UI / DESIGN SYSTEM
+Mobile bottom navigation:
+Home | Ask | Library | Settings
+Desktop left sidebar:
+Home
+Ask Arogya
+Health library
+Saved conversations
+Settings
+Admin uses a separate layout and separate navigation.
+Visual direction:
+- Off-white background
+- Deep teal primary color
+- Muted indigo secondary color
+- White cards with light borders
+- Pale amber warning surfaces
+- Red only for urgent actions, with explicit text labels
+- Readable sans-serif typography
+- Tested Telugu font rendering
+- Body text around 18 px
+- Primary controls around 48–56 px high
+- Strong contrast, keyboard accessibility, screen-reader support, text resizing, and real-device testing
+Do not claim accessibility compliance without testing.
+Shared components:
+AppHeader
+LanguageSelector
+PrimaryButton
+GuestAccessButton
+MicrophoneButton
+RecordingIndicator
+TranscriptEditor
+ConversationMessage
+AnswerCard
+AudioPlayer
+SourceCard
+EvidenceStatus
+EmergencyHelpBanner
+ConsentControl
+EmptyState
+ErrorState
+ConfirmationDialog
+PAGES TO BUILD
+1. Welcome / landing page — /
+- Logo and language selector
+- Headline: “Ask health questions in your language.”
+- Scope statement: “General health information from reviewed sources.”
+- Primary button: “Start asking.”
+- Secondary button: “Sign in.”
+- Three-step explanation: Speak → Review → Listen
+- Example question cards
+- Visible emergency-help link
+- Privacy and accessibility links
+- Do not request microphone permission immediately.
+2. Sign in — /login
+- Email, password with show/hide
+- Sign-in button
+- Forgot-password link
+- Create-account link
+- Continue-as-guest button
+- Language selector
+- Handle submitting, invalid credentials, too many attempts, network unavailable, verification required
+- Use generic authentication errors where appropriate
+3. Registration and password recovery — /signup, /forgot-password, /reset-password
+- Optional display name
+- Email
+- Password requirements
+- Terms/privacy acknowledgement
+- Verification instructions
+- Password reset flow
+- Do not require Aadhaar, date of birth, diagnosis, address, or medical details to register
+4. Onboarding and permissions — /onboarding
+Three short steps:
+- Language selection: English/Telugu cards and sample audio; changeable later
+- Output preferences: spoken answers, playback speed, text size
+- Privacy and microphone: plain-language explanation, separate optional controls
+Separate controls for:
+- Saving conversation history
+- Retaining audio
+- Contributing recordings for improvement
+Do not bundle optional recording retention into basic app access.
+5. Home dashboard — /home
+- Neutral guest welcome
+- Large “Ask by voice” button
+- “Type a question” alternative
+- Topic cards
+- Recent saved conversations
+- Health-library shortcut
+- Healthcare-scheme shortcut
+- Persistent help entry point
+- No fake health scores or inferred medical conditions
+6. Voice/text assistant — /ask or /conversations/:id
+This is the main product screen.
+Header:
+- Session title
+- Language selector
+- New conversation
+- Privacy/session indicator
+Conversation area:
+- User question
+- Editable transcript before submission
+- Short answer
+- Expandable explanation
+- Source cards
+- Audio playback
+- Feedback and report controls
+Composer:
+- Microphone
+- Text field
+- Send
+- Cancel recording
+- Clear transcription
+State machine:
+Idle
+→ Requesting microphone
+→ Recording
+→ Transcribing
+→ Review transcript
+→ Searching reviewed sources
+→ Preparing answer
+→ Validating answer
+→ Ready / Speaking
+Also support:
+- Permission denied
+- No speech detected
+- Unsupported language
+- Network interrupted
+- No relevant evidence
+- Provider unavailable
+- Audio playback unavailable
+During recording:
+- Show a timer
+- Show a clear Stop control
+- Do not record silently in the background
+Answer card:
+Short answer
+A concise, plain-language response.
+More detail
+Expandable supporting explanation.
+Sources
+[Document title · Publisher · Last reviewed date]
+Actions
+[Listen] [Stop] [Save] [Report an issue]
+Boundary note
+General information—not a diagnosis.
+7. Source detail — /sources/:id
+- Document title and publisher
+- Publication/version date
+- Application review date
+- Exact supporting excerpt
+- PDF page number or section heading
+- Original-source link
+- Language
+- Whether displayed passage is translated
+- “Report outdated information”
+- Distinguish “reviewed by this application” from official endorsement
+8. Health library and article reader — /library, /library/:slug
+Library:
+- Search field
+- Topic filters
+- Language filter
+- Article cards with publisher and review date
+- Loading and empty states
+Reader:
+- Title
+- Short summary
+- Main content
+- Read-aloud controls
+- Adjustable text size
+- Source information
+- Related reviewed articles
+- “Ask about this article”
+- When asking about an article, prioritize that article’s approved passages
+9. Saved conversations — /history
+- Date-grouped list
+- Search
+- Topic/language filter
+- Open conversation
+- Delete one conversation
+- Delete-all control with confirmation
+- For guests, show that history is temporary unless they choose a supported save option
+- Do not include “Share publicly” by default
+10. Profile, preferences, and privacy — /settings
+- Account
+- Language and voice
+- Playback speed
+- Text size and appearance
+- Save-history preference
+- Audio-retention preference
+- Consent history
+- Delete conversation data
+- Delete account
+- Sign out
+Show processing mode honestly:
+Processing: Cloud-assisted
+Audio retention: Off
+Conversation history: On
+“Local” must mean relevant processing actually stays local—not merely that Ollama is used for one stage.
+11. Urgent help — /help/urgent
+- Clear statement that the app cannot assess emergencies
+- Reviewed, locale-specific contact information
+- Tap-to-call action where supported
+- Instructions for seeking professional help
+- Simple language switch
+- Verify all contact numbers for the deployment region before release
+- Never claim an ambulance was dispatched or clinician contacted unless a real integration confirms it
+12. Admin overview — /admin
+- Approved documents count
+- Pending reviews
+- Documents approaching review expiry
+- Failed ingestion jobs
+- Reported answers
+- Evaluation summary
+- Links to content and review queues
+- Show aggregate operational data, not identifiable patient conversations
+13. Document ingestion and review — /admin/documents, /admin/documents/:id
+- PDF upload or source-URL entry
+- Publisher and source URL
+- Topic, language, jurisdiction
+- Publication date
+- Review date
+- Permission/license notes
+- Extracted-text preview
+- Chunk preview
+- Reviewer assignment
+- Approve, reject, archive, re-index controls
+Document lifecycle:
+Draft → Extracted → Needs review → Approved → Indexed
+                                  → Rejected
+Indexed → Superseded / Archived
+Retrieval must enforce approval status server-side. Hiding unapproved documents in the UI is not enough.
+14. Answer review and evaluations — /admin/reviews
+- Reported question and answer, appropriately redacted
+- Retrieved passages
+- Source versions
+- Failure category
+- Reviewer notes
+- Resolution status
+- Regression-test creation
+Failure categories:
+- Wrong retrieval
+- Unsupported claim
+- Incorrect translation
+- Speech-recognition error
+- Unsafe response
+- Outdated source
+- Broken citation
+Corrections should update content, policy, or tests—not silently retrain a model on user conversations.
+END-TO-END WORKFLOWS
+Workflow A — Voice question:
+1. User selects language.
+2. User taps microphone.
+3. Browser requests permission if needed.
+4. User records a short question.
+5. Backend validates audio.
+6. Whisper transcribes it.
+7. User reviews and corrects transcript.
+8. Backend checks scope and safety routing.
+9. BGE-M3 embeds the question.
+10. Chroma retrieves approved applicable passages.
+11. Evidence gate checks relevance and coverage.
+12. LLM drafts response only from retrieved passages.
+13. Output checks validate citations and prohibited content.
+14. Approved answer appears.
+15. TTS reads the same approved answer.
+16. History is saved only according to user preference.
+Workflow B — Insufficient evidence:
+Question
+→ search approved material
+→ no sufficient evidence
+→ ask one useful clarification OR explain the library cannot answer
+→ offer relevant reviewed material or professional-help direction.
+Workflow C — Possible urgent situation:
+Question / transcript
+→ safety routing flags possible urgent situation
+→ interrupt normal answer flow
+→ display reviewed urgent-help content
+→ provide verified regional contact options.
+Workflow D — New document publication:
+Admin submits document
+→ validate file and source
+→ extract text / OCR
+→ reviewer checks accuracy, scope, dates, permissions
+→ create versioned chunks
+→ embed and index
+→ run retrieval regression tests
+→ publish.
+DATABASE ENTITIES
+users:
+- ID
+- auth-provider ID
+- optional display name
+preferences:
+- user ID
+- language
+- playback speed
+- text size
+consents:
+- subject/session ID
+- consent type
+- policy version
+- timestamp
+conversations:
+- ID
+- owner or guest-session ID
+- retention setting
+messages:
+- conversation ID
+- role
+- text
+- language
+- status
+documents:
+- publisher
+- URL
+- topic
+- jurisdiction
+document_versions:
+- version
+- dates
+- approval status
+- reviewer
+- checksum
+chunks:
+- version ID
+- text
+- page/section
+- embedding model/version
+answer_citations:
+- answer/message ID
+- chunk ID
+- supporting excerpt
+feedback:
+- message ID
+- category
+- optional comment
+ingestion_jobs:
+- document version
+- status
+- error
+audit_events:
+- actor
+- action
+- target
+- timestamp
+Keep original documents in private file storage.
+Keep vectors in Chroma.
+Use PostgreSQL as the source of truth for ownership, approval, versioning, and consent.
+API SURFACE
+GET    /me
+PATCH  /me/preferences
+POST   /conversations
+GET    /conversations
+GET    /conversations/{id}
+DELETE /conversations/{id}
+POST   /speech/transcriptions
+POST   /conversations/{id}/messages
+POST   /messages/{id}/speech
+POST   /messages/{id}/feedback
+GET    /library
+GET    /library/{slug}
+GET    /sources/{id}
+POST   /admin/documents
+GET    /admin/ingestion-jobs/{id}
+POST   /admin/document-versions/{id}/approve
+POST   /admin/document-versions/{id}/archive
+GET    /admin/reviews
+Every conversation endpoint must check ownership.
+Every admin endpoint must check server-side permissions.
+Response contract:
+{
+  "status": "answered",
+  "answer_text": "...",
+  "spoken_text": "...",
+  "language": "en",
+  "citations": [
+    {
+      "source_id": "...",
+      "document_version_id": "...",
+      "chunk_id": "...",
+      "page": 4,
+      "supporting_excerpt": "..."
+    }
+  ],
+  "audio_status": "pending"
+}
+Other valid statuses:
+- needs_clarification
+- insufficient_evidence
+- out_of_scope
+- urgent_help
+CONTENT AND EVALUATION STRATEGY
+Use separate collections for:
+1. Approved health knowledge — evidence for answers
+2. Scheme knowledge — official eligibility/application material
+3. Evaluation questions — questions, expected answers, supporting passages
+4. Speech evaluation — consented recordings and verified transcripts
+Starter content:
+- 10–20 carefully selected documents
+- Three tightly defined health topics
+- One scheme category
+- Around 50 manually checked evaluation questions
+- A separate small development set for tuning
+- 20–30 consented test recordings across intended languages and recording conditions
+Test for:
+- Questions with clear source-backed answers
+- Questions outside the library
+- Ambiguous wording
+- Potential urgent situations
+- Requests for diagnosis or dosage
+- English/Telugu mixed speech
+- Noisy recordings
+- Incorrect or incomplete transcripts
+- Prompt-injection attempts in questions and imported documents
+Do not fine-tune models first. Improve document quality, retrieval, prompts, and evaluation first.
+PRIVACY, DEPLOYMENT, AND COST
+Prototype defaults:
+- Do not retain raw audio after transcription.
+- Do not store conversations unless the user opts in.
+- Keep personal conversations out of the shared retrieval index.
+- Use synthetic conversations for demonstrations.
+- Keep provider keys on the backend.
+- Remove sensitive content from application logs.
+- Restrict source uploads to authorized staff.
+- Encrypt transport and stored sensitive data.
+- Document deletion and backup-retention behavior.
+- Review privacy, security, and legal requirements before handling real patient information.
+Deployment structure:
+Web frontend
+      ↓
+FastAPI backend
+      ├── PostgreSQL
+      ├── Chroma
+      ├── Speech/model worker
+      ├── Ingestion worker
+      └── Private file storage
+Add real-time Pipecat orchestration only after this path works reliably.
+IMPLEMENTATION ORDER
+Stage 1 — Scope, wireframes, language decision
+Exit: clear supported and unsupported use cases.
+Stage 2 — Document ingestion and text-only retrieval
+Exit: correct source passages appear for test questions.
+Stage 3 — Grounded text answers and abstention
+Exit: unsupported questions do not receive invented answers.
+Stage 4 — Voice input and transcript correction
+Exit: users can reliably correct recognition mistakes.
+Stage 5 — Speech output and playback
+Exit: audio matches approved text.
+Stage 6 — Login, optional history, privacy settings
+Exit: ownership and deletion tests pass.
+Stage 7 — Admin approval and review queue
+Exit: unapproved content cannot be retrieved.
+Stage 8 — Telugu evaluation and accessibility testing
+Exit: language-specific failures are understood and addressed.
+Stage 9 — Performance, failure handling, demonstration
+Exit: end-to-end flow works under realistic conditions.
+TRACK THESE METRICS
+- Retrieval success against expected passages
+- Answer support and citation correctness
+- Appropriate abstention
+- Speech-recognition errors
+- Telugu pronunciation and translation quality
+- Time to first visible answer
+- Time to first spoken audio
+- Failure recovery
+Before presenting the product as ready for real healthcare use, have a qualified healthcare reviewer assess medical content and safety behavior.
+YOUR TASK
+Start by:
+1. Restating the product goal in one sentence.
+2. Asking up to 3 clarifying questions only if truly necessary.
+3. Then produce a complete implementation plan, including:
+   - Project folder structure
+   - Database schema
+   - API endpoints
+   - Frontend pages and components
+   - Backend services
+   - RAG pipeline
+   - Safety rules
+   - Admin workflow
+   - Testing plan
+   - Deployment plan
+   - First 10 development tasks in exact order
+Do not produce vague advice. Give concrete, buildable output.
+
+
+
+
+and use this extra info too
+
+
+
+1. Define the product before building
+Proposed concept: “Arogya Voice”
+A multilingual assistant that helps people understand approved health information and navigate healthcare services using voice or text.
+For the first version, focus on:
+* Reading and explaining approved health education material in simple language.
+* Answering questions about a small set of reviewed topics.
+* Helping users prepare questions for a healthcare professional.
+* Explaining healthcare scheme information from official sources.
+* Showing the source behind each answer.
+* Reading answers aloud, with visible text available at all times.
+WHO provides health publications and fact sheets, while myScheme provides scheme eligibility, benefits, required documents, and application guidance. These are different kinds of sources and should remain separate categories in your application.who+1
+Recommended first release
+Build for adults seeking general health information, with:
+* English as the first fully working language.
+* Telugu as the second language, enabled after speech and translation testing.
+* Three narrowly selected health education topics.
+* One healthcare scheme information section.
+* Guest access.
+* Optional accounts for saving conversations.
+* One administrator/reviewer interface.
+Avoid collecting detailed medical histories in this release.
+Keep these outside the MVP
+Do not build automated diagnosis, personalized treatment recommendations, medication dosage calculation, prescription generation, medical image interpretation, or a “you are safe” symptom checker.
+Treat those as explicit product boundaries—not problems solved by adding a disclaimer.
+2. How to improve the architecture in your screenshot
+Your image shows:
+```
+text
+```
+User speaks → Whisper → RAG search → LLM → Piper → User hears
+It also shows a knowledge base containing PDFs, public datasets, and voice samples. The accompanying text says that the knowledge base feeds retrieval, but the connecting arrow is missing.image.jpg
+There are two important changes to make:
+1. Connect reviewed health documents to the retrieval system explicitly.
+2. Keep speech datasets separate from the medical knowledge base. Voice recordings help evaluate or develop speech components; they should not become evidence for health answers.
+Proposed complete architecture
+```
+text
+```
+                         USER APPLICATION
+                  Mobile-first web app / PWA
+             Voice input • Text input • Source viewer
+                              │
+                         HTTPS / WSS
+                              │
+                    BACKEND APPLICATION
+           Authentication • Permissions • Rate limits
+                 Consent • Session management
+                              │
+                  CONVERSATION ORCHESTRATOR
+                              │
+              ┌───────────────┴────────────────┐
+              │                                │
+          Voice input                      Text input
+              │                                │
+       Audio validation                        │
+       Speech recognition                      │
+          [Whisper]                            │
+              │                                │
+       Transcript preview ─────────────────────┘
+                              │
+                Scope and safety routing
+                 │            │             │
+                 │            │             └─ Out of scope
+                 │            │                Explain limits
+                 │            │
+                 │            └─ Potential emergency
+                 │               Reviewed escalation message
+                 │
+                 └─ Supported information question
+                              │
+                  Embed the search question
+                         [BGE-M3]
+                              │
+                  Retrieve approved passages
+                         [Chroma]
+                              │
+               Evidence sufficiency / relevance check
+                     │                    │
+                  Enough               Not enough
+                     │                    │
+                     │                Clarify or abstain
+                     ▼
+               Generate grounded answer
+                 [Gemini OR local LLM]
+                              │
+              Output safety + citation validation
+                              │
+                   Approved final answer
+                     │                │
+               Visible text       TTS adapter
+               + citations        [Piper or validated
+                                   language alternative]
+                                      │
+                                Spoken answer
+The separate content pipeline is:
+```
+text
+```
+Official documents
+       ↓
+Upload / permitted import
+       ↓
+Extract text / OCR where needed
+       ↓
+Check source, date, scope, reuse permissions
+       ↓
+Human review
+       ↓
+Chunk text + attach source metadata
+       ↓
+Generate embeddings with BGE-M3
+       ↓
+Publish approved version to Chroma
+       ↓
+Available to the retrieval step above
+BGE-M3 supports multilingual embeddings; Chroma supplies search/storage infrastructure. Neither component independently verifies whether a passage is medically correct—that responsibility belongs in your content review and evaluation process.trychroma+1
+3. Recommended technology stack
+The following is a proposed stack, not a requirement to use every tool immediately.
+```
+| Layer                   | Recommended choice                                         | Purpose                                         |
+| ----------------------- | ---------------------------------------------------------- | ----------------------------------------------- |
+| Frontend                | Next.js, React, TypeScript                                 | Pages, responsive UI, client interaction        |
+| Styling                 | Tailwind CSS and a reusable component library              | Consistent interface                            |
+| Backend                 | FastAPI                                                    | Authentication integration, APIs, orchestration |
+| Main database           | PostgreSQL                                                 | Users, consent, sessions, document metadata     |
+| Authentication          | Managed authentication provider                            | Login, verification, password recovery          |
+| Speech recognition      | Whisper                                                    | Audio-to-text                                   |
+| Embeddings              | BGE-M3                                                     | Question/document embeddings                    |
+| Retrieval store         | Chroma                                                     | Search approved passages                        |
+| Answer generation       | Gemini initially; Ollama as an alternative deployment path | Generate answers from retrieved evidence        |
+| Speech output           | Piper where a suitable tested voice exists                 | Text-to-speech                                  |
+| File storage            | Private object storage                                     | Source documents and optional generated audio   |
+| Background jobs         | Worker process; add Redis/job queue if needed              | Ingestion and expensive processing              |
+| Real-time orchestration | Pipecat in a later stage                                   | Streaming voice conversation                    |
+```
+Whisper supports multilingual recognition, but its own documentation notes that performance varies substantially by language. Select the model using your actual Telugu/English recordings and available hardware, rather than assuming one model will perform equally well for both.github
+Pipecat supports voice pipelines and integrations including Whisper, Gemini, Ollama, and Piper. For a first prototype, however, a simple record–submit–respond interaction will be easier to debug than full real-time conversation.github
+Important Telugu voice decision
+Do not assume that the Piper voice collection contains a suitable, production-ready Telugu voice. Validate the exact voice, pronunciation quality, and applicable license before choosing it.
+If it does not meet your needs, evaluate Indian-language speech resources from AI4Bharat or BHASHINI. AI4Bharat works on Indian-language ASR and TTS; BHASHINI offers language services through a registration and approval process.ai4bharat.iitm.ac+2
+Keep the implementation behind interchangeable interfaces:
+```
+text
+```
+SpeechToTextProvider.transcribe(audio, language)
+EmbeddingProvider.embed(text)
+Retriever.search(query, filters)
+AnswerProvider.generate(question, evidence)
+TextToSpeechProvider.synthesize(text, language)
+That lets you replace one component without rebuilding the UI.
+4. Layered system design
+Layer 1 — Presentation
+Responsible for:
+* Screens and navigation.
+* Microphone permission.
+* Recording controls.
+* Transcript editing.
+* Text responses and audio playback.
+* Source cards.
+* Loading, error, offline, and accessibility states.
+The frontend should not contain model API keys or decide whether an answer passes the medical-content policy.
+Layer 2 — API and access control
+Responsible for:
+* Validating requests.
+* Verifying authentication.
+* Enforcing user/admin permissions.
+* File size and duration limits.
+* Rate limiting.
+* Session ownership.
+* Consent checks.
+Guest users receive an expiring anonymous session; they should not need to create an account for basic public information.
+Layer 3 — Conversation orchestration
+Responsible for:
+* Coordinating speech recognition, retrieval, generation, and speech output.
+* Tracking conversation state.
+* Applying timeouts.
+* Cancelling superseded requests.
+* Handling retries without duplicating messages.
+Start with one modular backend and separate background/model workers where necessary. You do not need many microservices for the MVP.
+Layer 4 — Safety and evidence policy
+Responsible for:
+* Restricting supported topics.
+* Routing possible urgent situations to reviewed escalation content.
+* Detecting missing evidence.
+* Blocking unsupported personalized treatment instructions.
+* Checking that cited source IDs actually exist.
+* Ensuring the spoken answer matches the approved visible answer.
+Emergency detection is a routing aid, not a reliable diagnostic system. Keep emergency help accessible even when detection fails.
+Layer 5 — Knowledge and model services
+Responsible for:
+* Embeddings.
+* Retrieval.
+* Model inference.
+* Text-to-speech.
+* Source version selection.
+* Language-specific processing.
+Use the same embedding model/version for indexed documents and search questions.
+Layer 6 — Storage and operations
+Responsible for:
+* PostgreSQL records.
+* Chroma collections.
+* Source document storage.
+* Retention and deletion jobs.
+* Audit events.
+* Performance monitoring.
+* Backup and restoration.
+Keep operational logs separate from conversation content.
+5. Navigation and UI design system
+Patient-facing navigation
+On mobile, use four bottom-navigation items:
+```
+text
+```
+Home | Ask | Library | Settings
+Place conversation history inside Home initially; make it a separate navigation item only if usage justifies it.
+On desktop:
+```
+text
+```
+Left sidebar:
+Home
+Ask Arogya
+Health library
+Saved conversations
+Settings
+Keep admin navigation in a separate layout.
+Proposed visual language
+* Background: off-white.
+* Primary color: deep teal.
+* Secondary color: muted indigo, reflecting your screenshot.
+* Cards: white, lightly bordered.
+* Warning surfaces: pale amber.
+* Urgent actions: red with explicit text labels.
+* Typography: readable sans-serif, with tested Telugu font rendering.
+* Main body text: approximately 18 px.
+* Primary controls: approximately 48–56 px high.
+These are design starting points, not claims of accessibility compliance. Test contrast, keyboard access, screen readers, text resizing, and real devices before making compliance claims.
+Shared components
+```
+text
+```
+AppHeader
+LanguageSelector
+PrimaryButton
+GuestAccessButton
+MicrophoneButton
+RecordingIndicator
+TranscriptEditor
+ConversationMessage
+AnswerCard
+AudioPlayer
+SourceCard
+EvidenceStatus
+EmergencyHelpBanner
+ConsentControl
+EmptyState
+ErrorState
+ConfirmationDialog
+Do not display invented confidence percentages such as “98% medically accurate.”
+Prefer status labels such as:
+* “Supported by reviewed sources.”
+* “More information needed.”
+* “No approved source found.”
+* “This question needs a healthcare professional.”
+6. Detailed UI for every important page
+Page 1 — Welcome / landing page
+Route: /
+Purpose: explain the product and let people start quickly.
+Components:
+* Logo and language selector.
+* Headline: “Ask health questions in your language.”
+* Short scope statement: “General health information from reviewed sources.”
+* Primary button: “Start asking.”
+* Secondary button: “Sign in.”
+* Three-step explanation: Speak → Review → Listen.
+* Example question cards.
+* Visible emergency-help link.
+* Privacy and accessibility links.
+Behavior:
+* “Start asking” opens guest onboarding.
+* Do not ask for microphone access immediately.
+* Do not imply that a doctor is answering unless an actual clinician service exists.
+Page 2 — Sign in
+Route: /login
+Components:
+* Email field.
+* Password field with show/hide control.
+* Sign-in button.
+* Forgotten-password link.
+* Create-account link.
+* Continue-as-guest button.
+* Optional social sign-in.
+* Language selector.
+States:
+* Submitting.
+* Invalid credentials.
+* Too many attempts.
+* Network unavailable.
+* Verification required.
+Use generic authentication errors where appropriate rather than revealing whether another person’s email is registered.
+Page 3 — Registration and password recovery
+Routes: /signup, /forgot-password, /reset-password
+Registration components:
+* Optional display name.
+* Email.
+* Password.
+* Password requirements.
+* Terms/privacy acknowledgement.
+* Create-account button.
+* Verification instructions.
+Password recovery components:
+* Email entry.
+* Generic submission confirmation.
+* New-password and confirm-password fields.
+* Expired-link state.
+Do not require date of birth, Aadhaar, diagnoses, address, or other medical details just to register.
+Page 4 — Onboarding and permissions
+Route: /onboarding
+Use three short steps.
+```
+| Step                   | Components                                             | Behavior                                                    |
+| ---------------------- | ------------------------------------------------------ | ----------------------------------------------------------- |
+| Language               | English/Telugu cards, sample audio                     | Allow changes later                                         |
+| Output preferences     | Spoken answers, playback speed, text size              | Keep text available regardless of audio choice              |
+| Privacy and microphone | Plain-language explanation, separate optional controls | Request microphone access only after the user chooses voice |
+```
+Separate controls for:
+* Saving conversation history.
+* Retaining audio.
+* Contributing recordings for improvement.
+Do not bundle optional recording retention into access to the application.
+Page 5 — Home dashboard
+Route: /home
+Components:
+* Greeting or neutral guest welcome.
+* Large “Ask by voice” button.
+* “Type a question” alternative.
+* Topic cards.
+* Recent saved conversations.
+* Health library shortcut.
+* Healthcare scheme shortcut.
+* Persistent help entry point.
+Suggested layout:
+```
+text
+```
+┌─────────────────────────────────┐
+│ Arogya Voice          English ▾ │
+├─────────────────────────────────┤
+│ What would you like to know?    │
+│                                 │
+│       [ Ask by voice ]          │
+│       [ Type a question ]       │
+│                                 │
+│ Explore reviewed information   │
+│ [Topic 1] [Topic 2] [Topic 3]    │
+│ [Healthcare schemes]            │
+│                                 │
+│ Recent conversations           │
+│ • Previous question            │
+├─────────────────────────────────┤
+│ Home    Ask    Library Settings │
+└─────────────────────────────────┘
+Do not fill the dashboard with fake health scores or inferred medical conditions.
+Page 6 — Voice/text assistant
+Route: /ask or /conversations/:id
+This is the main product screen.
+Header:
+* Session title.
+* Language selector.
+* New conversation.
+* Privacy/session indicator.
+Conversation area:
+* User question.
+* Editable transcript before submission.
+* Short answer.
+* Expandable explanation.
+* Source cards.
+* Audio playback.
+* Feedback and report controls.
+Composer:
+* Microphone.
+* Text field.
+* Send.
+* Cancel recording.
+* Clear transcription.
+Recommended state machine:
+```
+text
+```
+Idle
+ → Requesting microphone
+ → Recording
+ → Transcribing
+ → Review transcript
+ → Searching reviewed sources
+ → Preparing answer
+ → Validating answer
+ → Ready / Speaking
+Also support:
+```
+text
+```
+Permission denied
+No speech detected
+Unsupported language
+Network interrupted
+No relevant evidence
+Provider unavailable
+Audio playback unavailable
+During recording, display a timer and a clear “Stop” control. Do not record silently in the background.
+Answer-card structure
+```
+text
+```
+Short answer
+
+A concise, plain-language response.
+
+More detail
+Expandable supporting explanation.
+
+Sources
+[Document title · Publisher · Last reviewed date]
+
+Actions
+[Listen] [Stop] [Save] [Report an issue]
+
+Boundary note
+General information—not a diagnosis.
+If speech output fails, preserve the text answer. If retrieval fails, do not silently switch to an uncited general-model answer.
+Page 7 — Source detail
+Route: /sources/:id
+Components:
+* Document title and publisher.
+* Publication/version date.
+* Application review date.
+* Exact supporting excerpt.
+* PDF page number or section heading.
+* Original-source link.
+* Language.
+* Whether the displayed passage is translated.
+* “Report outdated information.”
+Behavior:
+* Open the cited location where possible.
+* Distinguish “reviewed by this application” from any claim of official endorsement.
+* Keep withdrawn sources out of new answers while preserving provenance for old conversations.
+Page 8 — Health library and article reader
+Routes: /library, /library/:slug
+Library components:
+* Search field.
+* Topic filters.
+* Language filter.
+* Article cards with publisher and review date.
+* Loading and empty states.
+Reader components:
+* Title.
+* Short summary.
+* Main content.
+* Read-aloud controls.
+* Adjustable text size.
+* Source information.
+* Related reviewed articles.
+* “Ask about this article.”
+When users ask about an article, prioritize that article’s approved passages rather than allowing an unrestricted topic switch.
+Page 9 — Saved conversations
+Route: /history
+Components:
+* Date-grouped list.
+* Search.
+* Topic/language filter.
+* Open conversation.
+* Delete one conversation.
+* Delete-all control with confirmation.
+For guests, show that history is temporary unless they explicitly choose a supported save option.
+Do not include “Share publicly” by default.
+Page 10 — Profile, preferences, and privacy
+Route: /settings
+Sections:
+* Account.
+* Language and voice.
+* Playback speed.
+* Text size and appearance.
+* Save-history preference.
+* Audio-retention preference.
+* Consent history.
+* Delete conversation data.
+* Delete account.
+* Sign out.
+Show the current processing mode honestly:
+```
+text
+```
+Processing: Cloud-assisted
+Audio retention: Off
+Conversation history: On
+“Local” should mean the relevant processing actually stays local—not merely that you use Ollama for one stage.
+Page 11 — Urgent help
+Route: /help/urgent
+Components:
+* Clear statement that the app cannot assess emergencies.
+* Reviewed, locale-specific contact information.
+* Tap-to-call action where supported.
+* Instructions for seeking professional help.
+* Simple language switch.
+Use fixed, reviewed content for this page. Verify contact numbers for the deployment region before release.
+Do not claim that an ambulance has been dispatched or a clinician contacted unless a real integration confirms that action.
+Page 12 — Admin overview
+Route: /admin
+Components:
+* Approved documents count.
+* Pending reviews.
+* Documents approaching review expiry.
+* Failed ingestion jobs.
+* Reported answers.
+* Evaluation summary.
+* Links to content and review queues.
+Show aggregate operational information by default, not identifiable patient conversations.
+Page 13 — Document ingestion and review
+Routes: /admin/documents, /admin/documents/:id
+Components:
+* PDF upload or source-URL entry.
+* Publisher and source URL.
+* Topic, language, and jurisdiction.
+* Publication date.
+* Review date.
+* Permission/license notes.
+* Extracted-text preview.
+* Chunk preview.
+* Reviewer assignment.
+* Approve, reject, archive, and re-index controls.
+Document lifecycle:
+```
+text
+```
+Draft → Extracted → Needs review → Approved → Indexed
+                                  │
+                                  └→ Rejected
+
+Indexed → Superseded / Archived
+The retrieval service must enforce approval status server-side. Hiding an unapproved document in the UI is not sufficient.
+Page 14 — Answer review and evaluations
+Route: /admin/reviews
+Components:
+* Reported question and answer, appropriately redacted.
+* Retrieved passages.
+* Source versions.
+* Failure category.
+* Reviewer notes.
+* Resolution status.
+* Regression-test creation.
+Failure categories:
+* Wrong retrieval.
+* Unsupported claim.
+* Incorrect translation.
+* Speech recognition error.
+* Unsafe response.
+* Outdated source.
+* Broken citation.
+Corrections should update content, policy, or tests—not silently retrain a model on user conversations.
+7. End-to-end workflows
+Workflow A — Voice question
+1. User selects a language.
+2. User taps the microphone.
+3. The browser requests permission if necessary.
+4. User records a short question.
+5. Backend validates the audio.
+6. Whisper transcribes it.
+7. User reviews and corrects the transcript.
+8. Backend checks scope and safety routing.
+9. BGE-M3 embeds the question.
+10. Chroma retrieves approved, applicable passages.
+11. The evidence gate checks relevance and coverage.
+12. The LLM drafts a response using those passages.
+13. Output checks validate citations and prohibited content.
+14. The approved answer appears.
+15. TTS reads the same approved answer.
+16. History is saved only according to the user’s preference.
+Whisper’s documented Python transcription processes audio in sliding windows; treat your initial implementation as turn-based rather than assuming native real-time partial transcription.github
+Workflow B — Insufficient evidence
+```
+text
+```
+Question
+   ↓
+Search approved material
+   ↓
+No sufficient evidence
+   ↓
+Ask one useful clarification
+OR explain that the source library cannot answer
+   ↓
+Offer relevant reviewed material or professional-help direction
+Do not treat a high vector-similarity score as a clinical confidence score.
+Workflow C — Possible urgent situation
+```
+text
+```
+Question / transcript
+   ↓
+Safety routing flags a possible urgent situation
+   ↓
+Interrupt normal information-answer flow
+   ↓
+Display reviewed urgent-help content
+   ↓
+Provide verified regional contact options
+Keep the urgent-help button visible independently of this automation.
+Workflow D — New document publication
+```
+text
+```
+Admin submits document
+   ↓
+Validate file and source
+   ↓
+Extract text / OCR
+   ↓
+Reviewer checks accuracy, scope, dates, and permissions
+   ↓
+Create versioned chunks
+   ↓
+Embed and index
+   ↓
+Run retrieval regression tests
+   ↓
+Publish
+Treat document text as evidence, not as executable instructions. Retrieved text must never override your system’s safety or access-control rules.
+8. Database and API blueprint
+Core database entities
+```
+| Entity            | Important fields                                            |
+| ----------------- | ----------------------------------------------------------- |
+| users             | ID, auth-provider ID, optional display name                 |
+| preferences       | User ID, language, playback speed, text size                |
+| consents          | Subject/session ID, consent type, policy version, timestamp |
+| conversations     | ID, owner or guest-session ID, retention setting            |
+| messages          | Conversation ID, role, text, language, status               |
+| documents         | Publisher, URL, topic, jurisdiction                         |
+| document_versions | Version, dates, approval status, reviewer, checksum         |
+| chunks            | Version ID, text, page/section, embedding model/version     |
+| answer_citations  | Answer/message ID, chunk ID, supporting excerpt             |
+| feedback          | Message ID, category, optional comment                      |
+| ingestion_jobs    | Document version, status, error                             |
+| audit_events      | Actor, action, target, timestamp                            |
+```
+Keep original documents in private file storage. Keep vectors in Chroma. Use PostgreSQL as the source of truth for ownership, approval, versioning, and consent.
+Suggested API surface
+```
+text
+```
+GET    /me
+PATCH  /me/preferences
+
+POST   /conversations
+GET    /conversations
+GET    /conversations/{id}
+DELETE /conversations/{id}
+
+POST   /speech/transcriptions
+POST   /conversations/{id}/messages
+POST   /messages/{id}/speech
+POST   /messages/{id}/feedback
+
+GET    /library
+GET    /library/{slug}
+GET    /sources/{id}
+
+POST   /admin/documents
+GET    /admin/ingestion-jobs/{id}
+POST   /admin/document-versions/{id}/approve
+POST   /admin/document-versions/{id}/archive
+GET    /admin/reviews
+Every conversation endpoint must check ownership. Every admin endpoint must check server-side permissions.
+A useful response contract is:
+```
+json
+```
+{   "status": "answered",   "answer_text": "...",   "spoken_text": "...",   "language": "en",   "citations": [     {       "source_id": "...",       "document_version_id": "...",       "chunk_id": "...",       "page": 4,       "supporting_excerpt": "..."     }   ],   "audio_status": "pending" }
+Other valid statuses should include needs_clarification, insufficient_evidence, out_of_scope, and urgent_help.
+9. Dataset and content strategy
+Use separate collections for separate purposes.
+```
+| Collection                | Purpose                            | Include                                           |
+| ------------------------- | ---------------------------------- | ------------------------------------------------- |
+| Approved health knowledge | Evidence for answers               | Reviewed official health documents                |
+| Scheme knowledge          | Service-navigation answers         | Current official eligibility/application material |
+| Evaluation questions      | Measure system quality             | Questions, expected answers, supporting passages  |
+| Speech evaluation         | Test recognition and pronunciation | Consented recordings and verified transcripts     |
+```
+Common Voice offers community-created speech datasets. AI4Bharat also provides Indian-language speech resources. Use them to evaluate speech capability, not as medical evidence.ai4bharat.iitm.ac+1
+Suggested starter material
+* Approximately 10–20 carefully selected documents.
+* Three tightly defined health topics.
+* One scheme category.
+* Around 50 manually checked evaluation questions.
+* A separate small development set for tuning.
+* Around 20–30 consented test recordings across your intended languages and recording conditions.
+Include tests for:
+* Questions with clear source-backed answers.
+* Questions outside your library.
+* Ambiguous wording.
+* Potential urgent situations.
+* Requests for diagnosis or dosage.
+* English/Telugu mixed speech.
+* Noisy recordings.
+* Incorrect or incomplete transcripts.
+* Prompt-injection attempts in questions and imported documents.
+Kaggle and Hugging Face are discovery platforms, not guarantees of medical reliability. Verify each dataset’s origin, permitted use, relevance, and freshness before using it.kaggle+1
+Do not fine-tune first. Improve document quality, retrieval, prompts, and evaluation before adding training work.
+10. Privacy, deployment, and cost boundaries
+For the prototype, I recommend these defaults:
+* Do not retain raw audio after transcription.
+* Do not store conversations unless the user opts in.
+* Keep personal conversations out of the shared retrieval index.
+* Use synthetic conversations during demonstrations.
+* Keep provider keys on the backend.
+* Remove sensitive content from application logs.
+* Restrict source uploads to authorized staff.
+* Encrypt transport and stored sensitive data.
+* Document deletion and backup-retention behavior.
+* Review privacy, security, and applicable legal requirements before handling real patient information.
+Google AI Studio provides access to Gemini API development, while Ollama offers local and cloud model execution. These are alternative deployment options; neither automatically makes your overall system suitable for sensitive healthcare data. Verify the exact service terms and data-handling configuration before sending such information.aistudio.google+1
+Also, “open-source” does not mean “free to operate.” Your budget still needs to consider hosting, inference hardware, storage, API usage, and maintenance. Check the selected model and voice licenses individually.
+A practical development deployment is:
+```
+text
+```
+Web frontend
+      ↓
+FastAPI backend
+      ├── PostgreSQL
+      ├── Chroma
+      ├── Speech/model worker
+      ├── Ingestion worker
+      └── Private file storage
+Add real-time Pipecat orchestration only after this path works reliably.
+11. Implementation order
+```
+| Stage | Build                                        | Exit condition                                          |
+| ----- | -------------------------------------------- | ------------------------------------------------------- |
+| 1     | Scope, wireframes, language decision         | Clear supported and unsupported use cases               |
+| 2     | Document ingestion and text-only retrieval   | Correct source passages appear for test questions       |
+| 3     | Grounded text answers and abstention         | Unsupported questions do not receive invented answers   |
+| 4     | Voice input and transcript correction        | Users can reliably correct recognition mistakes         |
+| 5     | Speech output and playback                   | Audio matches approved text                             |
+| 6     | Login, optional history, privacy settings    | Ownership and deletion tests pass                       |
+| 7     | Admin approval and review queue              | Unapproved content cannot be retrieved                  |
+| 8     | Telugu evaluation and accessibility testing  | Language-specific failures are understood and addressed |
+| 9     | Performance, failure handling, demonstration | End-to-end flow works under realistic conditions        |
+```
+Track at least:
+* Retrieval success against expected passages.
+* Answer support and citation correctness.
+* Appropriate abstention.
+* Speech recognition errors.
+* Telugu pronunciation and translation quality.
+* Time to first visible answer.
+* Time to first spoken audio.
+* Failure recovery.
+Have a qualified healthcare reviewer assess medical content and safety behavior before presenting the product as ready for real healthcare use.

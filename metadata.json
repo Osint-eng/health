@@ -1,0 +1,6 @@
+{
+  "name": "Arogya Voice",
+  "description": "Voice-first, source-grounded multilingual healthcare information and official scheme navigation assistant in English & Telugu.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
