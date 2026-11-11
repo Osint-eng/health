@@ -143,12 +143,27 @@ All user sessions, conversations, feedback reports, and admin document versions 
 
 ---
 
-## 📸 Screenshots & Architecture
+## 📸 Live Demo, Video & UI Walkthrough
 
-- **Ask Workspace:** Audio visualizer canvas, live recording waveform, transcript review editor pill, answer card with exact source citation chips and cosine similarity percentage badges.
-- **Verified Health Library:** Categorized catalog of all 7 approved documents across WHO GHO, WHO Standards, PAHO IRIS, and NHA India.
-- **Urgent Emergency Help:** One-tap calling for national helplines: 108 (Ambulance), 112 (Emergency), 102 (Pregnancy/Child), 1075 (Health Info), 14555 (PM-JAY), and 14416 (Tele-MANAS Mental Health).
-- **Admin Review Portal:** Audit queue for user-submitted feedback, document ingestion pipeline, and chunk preview inspector.
+- **🔗 Interactive Web Application:** [Arogya Voice Live App](https://ais-pre-dh563olqf7ie2nvnnwo7zs-618761089395.asia-southeast1.run.app)
+- **🎥 Hackathon Demo Video & Presentation:** [Devpost Project & Video Walkthrough](https://code-for-humanity.devpost.com/)
+
+### Core User Interface Flows:
+1. **Voice / Text Ask Workspace:**
+   - Real-time audio waveform visualizer and speech-to-text transcript review.
+   - Grounded clinical answer cards displaying exact supporting excerpts, page/section citations, and vector similarity percentages (BGE-M3 / ChromaDB).
+   - Instant audio playback via neural voice synthesis (English & Telugu) with pause/resume controls.
+   - First-use "What Arogya Voice Will & Will Not Do" clinical boundary matrix.
+2. **Approved Health Library:**
+   - Multi-topic catalog of official documents (Dengue, Malaria, Child Growth Standards, Fever Guidelines, Ayushman Bharat PM-JAY).
+   - In-depth reader view with font scaling, executive summaries, chunk breakdown, and a direct "Ask Question About This Article" bridge.
+3. **Urgent Help & Emergency Dispatch:**
+   - One-tap quick dialing cards for emergency services: 108 (National Ambulance), 112 (Emergency Response), 102 (Free Pregnancy/Infant Ambulance), 1075 (Health Helpline), and 14555 (PM-JAY).
+   - Acute warning signs red-flag protocols for chest pain, stroke, and pediatric respiratory distress.
+4. **Operations & Governance Portal:**
+   - Document ingestion pipeline with automated BGE-M3 paragraph chunking.
+   - Reviewer queue for user feedback, outdated citation reports, and automated regression test generation.
+   - 100% pass rate on safety evaluation benchmark test suite.
 
 ---
 

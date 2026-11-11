@@ -16,6 +16,7 @@ import {
   Layers,
   ArrowRight,
   TestTube,
+  Loader2,
 } from 'lucide-react';
 import { FeedbackReport, IngestionJob, KnowledgeTopic, Language } from '../types';
 import { api } from '../services/api';
@@ -169,9 +170,18 @@ export const AdminPage: React.FC<AdminPageProps> = ({ language }) => {
         </div>
       </div>
 
-      {/* TAB 1: OVERVIEW METRICS */}
-      {activeTab === 'overview' && (
-        <div className="space-y-6">
+      {loading ? (
+        <div className="py-20 text-center space-y-3 bg-white rounded-3xl border border-slate-200/90 shadow-xs">
+          <Loader2 className="w-8 h-8 text-teal-700 animate-spin mx-auto" />
+          <p className="text-xs font-semibold text-slate-500">
+            {isTe ? 'నిర్వహణ కొలమానాలను లోడ్ చేస్తోంది...' : 'Loading governance metrics and review queue...'}
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* TAB 1: OVERVIEW METRICS */}
+          {activeTab === 'overview' && (
+            <div className="space-y-6">
           {/* 4 Metric Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-xs">
@@ -474,6 +484,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ language }) => {
             </div>
           )}
         </div>
+      )}
+      </>
       )}
     </div>
   );

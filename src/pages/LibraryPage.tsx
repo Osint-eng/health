@@ -12,6 +12,7 @@ import {
   Sparkles,
   Sliders,
   ChevronLeft,
+  Loader2,
 } from 'lucide-react';
 import { DocumentSource, Language } from '../types';
 import { api } from '../services/api';
@@ -223,7 +224,12 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
 
           {/* Article Cards Grid */}
           {loading ? (
-            <div className="py-12 text-center text-xs text-slate-400">Loading publications...</div>
+            <div className="py-16 text-center space-y-3 bg-white rounded-3xl border border-slate-200/90 shadow-xs">
+              <Loader2 className="w-8 h-8 text-teal-700 animate-spin mx-auto" />
+              <p className="text-xs font-semibold text-slate-500">
+                {isTe ? 'అధికారిక పత్రాలను లోడ్ చేస్తోంది...' : 'Loading verified health publications from knowledge store...'}
+              </p>
+            </div>
           ) : articles.length === 0 ? (
             <div className="py-12 text-center bg-white rounded-3xl border border-slate-200 p-8 space-y-2">
               <BookOpen className="w-10 h-10 text-slate-300 mx-auto" />
