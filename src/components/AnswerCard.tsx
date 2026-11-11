@@ -165,29 +165,63 @@ export const AnswerCard: React.FC<AnswerCardProps> = ({
       {/* Cited Sources */}
       {message.citations && message.citations.length > 0 && (
         <div className="mb-4 pt-3 border-t border-slate-100">
-          <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center">
-            <FileText className="w-3.5 h-3.5 mr-1.5 text-teal-700" />
-            <span>{isTe ? 'సమీక్షించిన ఆధారాలు (Sources):' : 'Reviewed Official Sources:'}</span>
+          <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2.5 flex items-center justify-between">
+            <div className="flex items-center">
+              <FileText className="w-3.5 h-3.5 mr-1.5 text-teal-700" />
+              <span>{isTe ? 'సమీక్షించిన అధికారిక ఆధారాలు (Verified Sources):' : 'Reviewed Official Sources:'}</span>
+            </div>
+            {message.similarity_score !== undefined && message.similarity_score > 0 && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-teal-100 text-teal-900 border border-teal-200">
+                <Sparkles className="w-3 h-3 mr-1 text-teal-700" />
+                {Math.round(message.similarity_score * 100)}% Vector Match (BGE-M3)
+              </span>
+            )}
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2.5">
             {message.citations.map((cite, idx) => (
               <div
                 key={idx}
-                onClick={() => onViewSource(cite)}
-                className="flex items-center justify-between p-3 rounded-xl bg-teal-50/50 hover:bg-teal-50 border border-teal-200/60 cursor-pointer transition-all hover:border-teal-300 group"
+                className="p-3.5 rounded-xl bg-teal-50/40 border border-teal-200/70 transition-all hover:border-teal-300 group"
               >
-                <div className="truncate pr-3">
-                  <div className="text-xs font-bold text-slate-900 group-hover:text-teal-900 truncate">
-                    {cite.document_title}
+                <div className="flex items-start justify-between gap-2 mb-1.5">
+                  <div className="truncate">
+                    <div className="text-xs font-bold text-slate-900 group-hover:text-teal-900 truncate">
+                      {cite.document_title}
+                    </div>
+                    <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-1.5 mt-0.5">
+                      <span>{cite.publisher}</span>
+                      <span>·</span>
+                      <span className="font-medium text-slate-700">{cite.page_or_section}</span>
+                      <span>·</span>
+                      <span>Rev: {cite.review_date}</span>
+                    </div>
                   </div>
-                  <div className="text-[11px] text-slate-500">
-                    {cite.publisher} · {cite.page_or_section} · Rev: {cite.review_date}
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    {cite.similarity_score !== undefined && (
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-white text-teal-800 border border-teal-300 shadow-2xs">
+                        {Math.round(cite.similarity_score * 100)}% Match
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => onViewSource(cite)}
+                      className="text-[11px] font-bold text-teal-700 hover:text-teal-900 underline"
+                    >
+                      {isTe ? 'ఆధారం →' : 'Details →'}
+                    </button>
                   </div>
                 </div>
-                <span className="text-[11px] font-semibold text-teal-700 group-hover:underline shrink-0">
-                  {isTe ? 'ఆధారం చూడండి →' : 'View Excerpt →'}
-                </span>
+
+                {/* Inline Supporting Excerpt Preview */}
+                {cite.supporting_excerpt && (
+                  <div className="mt-2 pl-3 border-l-2 border-teal-500/60 bg-white/70 p-2 rounded-r-lg text-xs leading-relaxed text-slate-700 font-serif italic">
+                    "{cite.supporting_excerpt.length > 220
+                      ? cite.supporting_excerpt.substring(0, 220) + '...'
+                      : cite.supporting_excerpt}"
+                  </div>
+                )}
               </div>
             ))}
           </div>

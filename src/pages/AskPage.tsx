@@ -12,6 +12,9 @@ import {
   Lock,
   ArrowDown,
   Info,
+  CheckCircle2,
+  XCircle,
+  X,
 } from 'lucide-react';
 import { Citation, Conversation, Language, Message } from '../types';
 import { api } from '../services/api';
@@ -68,6 +71,22 @@ export const AskPage: React.FC<AskPageProps> = ({
   // Modals for Source detail and Reporting
   const [activeCitation, setActiveCitation] = useState<Citation | null>(null);
   const [reportingMessage, setReportingMessage] = useState<Message | null>(null);
+
+  // First-use Clinical Safety Card
+  const [showSafetyCard, setShowSafetyCard] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('arogya_dismiss_safety_card') !== 'true';
+    } catch {
+      return true;
+    }
+  });
+
+  const dismissSafetyCard = () => {
+    try {
+      localStorage.setItem('arogya_dismiss_safety_card', 'true');
+    } catch {}
+    setShowSafetyCard(false);
+  };
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const timerRef = useRef<any>(null);
@@ -255,6 +274,103 @@ export const AskPage: React.FC<AskPageProps> = ({
 
       {/* Main Conversation Stream */}
       <div className="flex-1 overflow-y-auto space-y-4 pr-1 pb-4">
+        {/* First-Use Safety Card */}
+        {showSafetyCard && (
+          <div className="p-4 sm:p-5 bg-gradient-to-br from-teal-50/90 via-white to-slate-50 border border-teal-200/90 rounded-2xl shadow-xs relative animate-fade-in mb-2">
+            <button
+              type="button"
+              onClick={dismissSafetyCard}
+              className="absolute top-3.5 right-3.5 p-1.5 text-slate-400 hover:text-slate-700 rounded-full hover:bg-slate-100 transition-colors"
+              title="Dismiss safety note"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="flex items-center space-x-2.5 mb-3">
+              <div className="w-7 h-7 rounded-lg bg-teal-800 text-white flex items-center justify-center">
+                <ShieldCheck className="w-4 h-4 text-teal-200" />
+              </div>
+              <div>
+                <h4 className="text-xs sm:text-sm font-bold text-slate-900">
+                  {isTe ? 'ఆరోగ్య వాయిస్ ఏమి చేస్తుంది & ఏమి చేయదు' : 'What Arogya Voice Will & Will Not Do'}
+                </h4>
+                <p className="text-[11px] text-slate-500">
+                  {isTe
+                    ? 'రోగి భద్రత కోసం అధికారిక మార్గదర్శకాలకు మాత్రమే కట్టుబడి ఉంటాము.'
+                    : 'Clear clinical boundaries grounded in official WHO, PAHO, and NHA standards.'}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs pt-1">
+              {/* What it will do */}
+              <div className="p-3 bg-white/90 border border-teal-200/70 rounded-xl space-y-2">
+                <div className="font-bold text-teal-900 flex items-center space-x-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-teal-700 shrink-0" />
+                  <span>{isTe ? 'ఆరోగ్య వాయిస్ చేస్తుంది (What It Does):' : 'What Arogya Voice WILL Do:'}</span>
+                </div>
+                <ul className="space-y-1.5 text-[11px] text-slate-700">
+                  <li className="flex items-start space-x-1.5">
+                    <span className="text-teal-700 font-bold">✓</span>
+                    <span>{isTe ? 'సమీక్షించిన WHO, PAHO, NHA పత్రాల నుండి మాత్రమే వాస్తవాలు అందిస్తుంది' : 'Answers only from verified WHO, PAHO, and official scheme guidelines'}</span>
+                  </li>
+                  <li className="flex items-start space-x-1.5">
+                    <span className="text-teal-700 font-bold">✓</span>
+                    <span>{isTe ? 'ఖచ్చితమైన కొటేషన్లు, పేజీలు మరియు వెక్టర్ సారూప్యత స్కోర్‌లను చూపుతుంది' : 'Displays exact excerpt quotes, page numbers, and vector similarity scores'}</span>
+                  </li>
+                  <li className="flex items-start space-x-1.5">
+                    <span className="text-teal-700 font-bold">✓</span>
+                    <span>{isTe ? 'తీవ్రమైన ప్రమాద హెచ్చరికలను గుర్తించి 108 / 112 కు మళ్లిస్తుంది' : 'Immediately routes acute warning signs to verified 108/112 helplines'}</span>
+                  </li>
+                  <li className="flex items-start space-x-1.5">
+                    <span className="text-teal-700 font-bold">✓</span>
+                    <span>{isTe ? 'మీ వైద్యుడిని సంప్రదించడానికి ఉపయోగపడే ప్రశ్నలను సూచిస్తుంది' : 'Suggests specific, actionable questions to take to your healthcare clinician'}</span>
+                  </li>
+                </ul>
+              </div>
+
+              {/* What it will NOT do */}
+              <div className="p-3 bg-white/90 border border-rose-200/70 rounded-xl space-y-2">
+                <div className="font-bold text-rose-900 flex items-center space-x-1.5">
+                  <XCircle className="w-3.5 h-3.5 text-rose-700 shrink-0" />
+                  <span>{isTe ? 'ఆరోగ్య వాయిస్ చేయదు (What It Will NOT Do):' : 'What Arogya Voice Will NOT Do:'}</span>
+                </div>
+                <ul className="space-y-1.5 text-[11px] text-slate-700">
+                  <li className="flex items-start space-x-1.5">
+                    <span className="text-rose-700 font-bold">✕</span>
+                    <span>{isTe ? 'ఎప్పటికీ వ్యాధి నిర్ధారణ చేయదు లేదా మీరు "సురక్షితం" అని చెప్పదు' : 'Never diagnose illnesses or declare a patient "safe"'}</span>
+                  </li>
+                  <li className="flex items-start space-x-1.5">
+                    <span className="text-rose-700 font-bold">✕</span>
+                    <span>{isTe ? 'మందుల మోతాదును (డ్రగ్ డోసేజ్) లెక్కించదు లేదా ప్రిస్క్రిప్షన్ రాయదు' : 'Never prescribe medications or calculate personal drug dosages'}</span>
+                  </li>
+                  <li className="flex items-start space-x-1.5">
+                    <span className="text-rose-700 font-bold">✕</span>
+                    <span>{isTe ? 'అధికారిక ఆధారాలు లేనప్పుడు ఊహించి సమాధానం చెప్పదు' : 'Never hallucinate unapproved sources or guess medical answers'}</span>
+                  </li>
+                  <li className="flex items-start space-x-1.5">
+                    <span className="text-rose-700 font-bold">✕</span>
+                    <span>{isTe ? 'అత్యవసర చికిత్సకు లేదా వైద్యుడి ప్రత్యక్ష పరీక్షకు ప్రత్యామ్నాయం కాదు' : 'Never substitute for emergency hospital triage or licensed clinicians'}</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="mt-3 pt-2.5 border-t border-teal-100 flex items-center justify-between">
+              <span className="text-[11px] text-teal-800 font-medium">
+                {isTe ? 'కఠినమైన క్లినికల్ భద్రత మరియు ఆధార నిబద్ధత' : 'Strict clinical safety & grounded evidence discipline'}
+              </span>
+              <button
+                type="button"
+                onClick={dismissSafetyCard}
+                className="px-3 py-1 bg-teal-800 hover:bg-teal-900 text-white text-[11px] font-bold rounded-lg transition-colors"
+              >
+                {isTe ? 'అర్థమైంది' : 'Understood'}
+              </button>
+            </div>
+          </div>
+        )}
+
         {messages.length === 0 ? (
           /* Empty State Welcome Guidance */
           <div className="py-8 sm:py-12 text-center space-y-4 max-w-lg mx-auto">

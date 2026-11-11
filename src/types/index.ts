@@ -19,6 +19,8 @@ export interface Citation {
   supporting_excerpt: string;
   original_url: string;
   is_translated?: boolean;
+  similarity_score?: number; // e.g. 0.94 (94% cosine similarity)
+  cosine_distance?: number;  // e.g. 0.06
 }
 
 export interface Message {
@@ -35,6 +37,8 @@ export interface Message {
   audio_status?: 'ready' | 'pending' | 'unavailable' | 'playing' | 'paused';
   created_at: string;
   is_urgent?: boolean;
+  similarity_score?: number;
+  retrieval_method?: string;
 }
 
 export interface Conversation {

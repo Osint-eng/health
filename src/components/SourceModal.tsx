@@ -45,7 +45,7 @@ export const SourceModal: React.FC<SourceModalProps> = ({
         </div>
 
         {/* Meta badges */}
-        <div className="grid grid-cols-2 gap-2 text-xs mb-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs mb-4">
           <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-100">
             <div className="flex items-center text-slate-500 mb-0.5">
               <Building2 className="w-3.5 h-3.5 mr-1 text-slate-400" />
@@ -60,6 +60,17 @@ export const SourceModal: React.FC<SourceModalProps> = ({
             </div>
             <div className="font-semibold text-slate-900">
               {citation.review_date} ({citation.document_version_id})
+            </div>
+          </div>
+          <div className="p-2.5 bg-teal-50/70 rounded-xl border border-teal-200/80 col-span-2 sm:col-span-1">
+            <div className="flex items-center text-teal-800 mb-0.5">
+              <ShieldCheck className="w-3.5 h-3.5 mr-1 text-teal-700" />
+              <span>{isTe ? 'వెక్టర్ పోలిక' : 'Vector Similarity'}</span>
+            </div>
+            <div className="font-bold text-teal-900">
+              {citation.similarity_score !== undefined
+                ? `${Math.round(citation.similarity_score * 100)}% Match`
+                : 'Verified Match'}
             </div>
           </div>
         </div>

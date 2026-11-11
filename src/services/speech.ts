@@ -113,6 +113,11 @@ export class SpeechSynthesisService {
     // Cancel any previous active utterance
     this.stop();
 
+    // Chrome audio engine resume fix
+    if (this.synth.paused) {
+      this.synth.resume();
+    }
+
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = speed;
     utterance.pitch = 1.0;
