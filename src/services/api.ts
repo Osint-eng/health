@@ -274,5 +274,14 @@ export const api = {
     if (!res.ok) throw new Error('Failed to run evaluation suite');
     return res.json();
   },
+
+  async resetDemoData(): Promise<{ success: boolean; message: string; active_documents: number; conversations_count: number }> {
+    const res = await fetch('/api/demo/reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) throw new Error('Failed to reset demo data');
+    return res.json();
+  },
 };
 

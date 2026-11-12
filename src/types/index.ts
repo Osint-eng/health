@@ -94,6 +94,28 @@ export interface DocumentSource {
   chunks: DocumentChunk[];
 }
 
+export type UserRole = 'patient' | 'asha_worker' | 'clinical_reviewer' | 'admin';
+
+export interface UserProfile {
+  id: string;
+  name: string;
+  email?: string;
+  role: UserRole;
+  badge: string;
+  organization?: string;
+  preferred_language: Language;
+  avatar_color: string;
+  permissions: {
+    can_ask: boolean;
+    can_browse_library: boolean;
+    can_submit_feedback: boolean;
+    can_ingest_documents: boolean;
+    can_approve_documents: boolean;
+    can_resolve_reviews: boolean;
+    can_run_evals: boolean;
+  };
+}
+
 export interface UserPreferences {
   language: Language;
   playback_speed: number; // 0.75 | 1.0 | 1.25
@@ -101,6 +123,7 @@ export interface UserPreferences {
   save_history: boolean;
   retain_audio: boolean;
   contribute_recordings: boolean;
+  speech_engine?: 'piper_stream' | 'browser_native';
 }
 
 export interface FeedbackReport {

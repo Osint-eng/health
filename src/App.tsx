@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Conversation, DocumentSource, Language, UserPreferences } from './types';
+import { Conversation, DocumentSource, Language, UserPreferences, UserProfile } from './types';
+import { DEFAULT_USER } from './data/demoPersonas';
 import { api } from './services/api';
 import { AppHeader } from './components/AppHeader';
 import { EmergencyHelpBanner } from './components/EmergencyHelpBanner';
@@ -17,6 +18,15 @@ import { AuthModal } from './components/AuthModal';
 export default function App() {
   const [currentTab, setCurrentTab] = useState<NavTab>('home');
   const [language, setLanguage] = useState<Language>('en');
+  const [currentUser, setCurrentUser] = useState<UserProfile>(() => {
+    try {
+      const saved = localStorage.getItem('arogya_user_profile');
+      return saved ? JSON.parse(saved) : DEFAULT_USER;
+    } catch {
+      return DEFAULT_USER;
+    }
+  });
+
   const [preferences, setPreferences] = useState<UserPreferences>({
     language: 'en',
     playback_speed: 1.0,
@@ -36,7 +46,6 @@ export default function App() {
   // Modal triggers
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const [isGuest, setIsGuest] = useState(true);
 
   // Initialize app state
   useEffect(() => {
@@ -117,6 +126,28 @@ export default function App() {
     setCurrentTab('ask');
   };
 
+  const handleSelectPersona = (persona: UserProfile) => {
+    setCurrentUser(persona);
+    setLanguage(persona.preferred_language);
+    try {
+      localStorage.setItem('arogya_user_profile', JSON.stringify(persona));
+    } catch {}
+  };
+
+  const handleResetDemoData = async () => {
+    try {
+      await api.resetDemoData();
+      const convList = await api.getConversations();
+      setConversations(convList);
+      if (convList.length > 0) {
+        setCurrentConversation(convList[0]);
+      }
+      setCurrentTab('ask');
+    } catch (e) {
+      console.error('Failed to reset demo store:', e);
+    }
+  };
+
   const handleClearAllData = async () => {
     try {
       await api.clearAllConversations();
@@ -159,7 +190,8 @@ export default function App() {
             onLanguageChange={handleLanguageChange}
             onOpenUrgent={() => setCurrentTab('urgent')}
             onOpenAuth={() => setShowAuthModal(true)}
-            isGuest={isGuest}
+            currentUser={currentUser}
+            onResetDemoData={handleResetDemoData}
           />
 
           {/* Active Screen Routing */}
@@ -223,6 +255,7 @@ export default function App() {
                   if (updates.language) setLanguage(updates.language);
                 }}
                 onClearAllData={handleClearAllData}
+                onResetDemoData={handleResetDemoData}
               />
             )}
 
@@ -234,7 +267,7 @@ export default function App() {
             )}
 
             {currentTab === 'admin' && (
-              <AdminPage language={language} />
+              <AdminPage language={language} onResetDemoData={handleResetDemoData} />
             )}
           </div>
         </main>
@@ -256,15 +289,14 @@ export default function App() {
         />
       )}
 
-      {/* Authentication / Guest Dialog */}
+      {/* Authentication / Persona Switching Dialog */}
       {showAuthModal && (
         <AuthModal
           language={language}
+          currentUser={currentUser}
           onClose={() => setShowAuthModal(false)}
-          onSuccess={() => {
-            setIsGuest(false);
-            setShowAuthModal(false);
-          }}
+          onSelectPersona={handleSelectPersona}
+          onResetDemoData={handleResetDemoData}
         />
       )}
     </div>

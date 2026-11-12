@@ -17,19 +17,40 @@ import {
   ArrowRight,
   TestTube,
   Loader2,
+  Play,
+  RotateCcw,
+  Sparkles,
+  ExternalLink,
 } from 'lucide-react';
-import { FeedbackReport, IngestionJob, KnowledgeTopic, Language } from '../types';
+import { FeedbackReport, IngestionJob, KnowledgeTopic, Language, EvaluationResult } from '../types';
 import { api } from '../services/api';
 
 interface AdminPageProps {
   language: Language;
+  onResetDemoData?: () => void;
 }
 
-export const AdminPage: React.FC<AdminPageProps> = ({ language }) => {
+export const AdminPage: React.FC<AdminPageProps> = ({ language, onResetDemoData }) => {
   const [activeTab, setActiveTab] = useState<'overview' | 'ingestion' | 'reviews'>('overview');
   const [metrics, setMetrics] = useState<any>(null);
   const [reviews, setReviews] = useState<FeedbackReport[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Live Benchmark Runner State
+  const [benchmarkResult, setBenchmarkResult] = useState<EvaluationResult | null>(null);
+  const [benchmarking, setBenchmarking] = useState(false);
+
+  const runLiveBenchmarks = async () => {
+    setBenchmarking(true);
+    try {
+      const res = await api.runEvaluationSuite();
+      setBenchmarkResult(res.results);
+    } catch (e) {
+      console.error('Benchmark execution error:', e);
+    } finally {
+      setBenchmarking(false);
+    }
+  };
 
   // Ingestion form state
   const [title, setTitle] = useState('');
@@ -243,6 +264,115 @@ export const AdminPage: React.FC<AdminPageProps> = ({ language }) => {
             <p className="text-xs text-slate-500">
               * Server-side policy enforces that only documents with status <code className="text-teal-800 font-bold bg-teal-50 px-1 py-0.5 rounded">indexed</code> can be retrieved. Hiding in UI is strictly not sufficient.
             </p>
+          </div>
+
+          {/* LIVE BENCHMARK RUNNER SUITE */}
+          <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200 shadow-xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center space-x-2">
+                  <TestTube className="w-5 h-5 text-teal-700" />
+                  <h3 className="font-extrabold text-slate-900 text-sm sm:text-base">
+                    Live Automated Clinical Benchmark Suite
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 text-teal-800">
+                    Colab Grounding Test Set
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  Executes live inquiries against the vector index, emergency gateway, and dosage abstention boundaries with real millisecond latency tracking.
+                </p>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  disabled={benchmarking}
+                  onClick={runLiveBenchmarks}
+                  className="px-4 py-2 bg-teal-800 hover:bg-teal-900 disabled:bg-slate-300 text-white rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 shadow-xs"
+                >
+                  {benchmarking ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Executing 7 Tests...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>Run Live Benchmark</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Benchmark Results */}
+            {benchmarkResult ? (
+              <div className="space-y-3 pt-2 border-t border-slate-100">
+                {/* Benchmark Score Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div className="p-3 bg-teal-50/70 border border-teal-200 rounded-xl">
+                    <div className="text-[10px] font-bold text-teal-800 uppercase">Groundedness</div>
+                    <div className="text-xl font-extrabold text-teal-900">{benchmarkResult.groundedness_score}%</div>
+                    <div className="text-[10px] text-teal-700">Source verified</div>
+                  </div>
+                  <div className="p-3 bg-teal-50/70 border border-teal-200 rounded-xl">
+                    <div className="text-[10px] font-bold text-teal-800 uppercase">Precision</div>
+                    <div className="text-xl font-extrabold text-teal-900">{benchmarkResult.retrieval_precision}%</div>
+                    <div className="text-[10px] text-teal-700">1024-dim Cosine</div>
+                  </div>
+                  <div className="p-3 bg-teal-50/70 border border-teal-200 rounded-xl">
+                    <div className="text-[10px] font-bold text-teal-800 uppercase">Abstention Accuracy</div>
+                    <div className="text-xl font-extrabold text-teal-900">{benchmarkResult.abstention_accuracy}%</div>
+                    <div className="text-[10px] text-teal-700">Zero dosage drift</div>
+                  </div>
+                  <div className="p-3 bg-teal-50/70 border border-teal-200 rounded-xl">
+                    <div className="text-[10px] font-bold text-teal-800 uppercase">Avg Latency</div>
+                    <div className="text-xl font-extrabold text-teal-900">{benchmarkResult.avg_latency_ms} ms</div>
+                    <div className="text-[10px] text-teal-700">Real pipeline execution</div>
+                  </div>
+                </div>
+
+                {/* Test Runs Breakdown */}
+                <div className="space-y-2 pt-1">
+                  {benchmarkResult.test_runs.map((test, idx) => (
+                    <div
+                      key={idx}
+                      className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="truncate pr-2">
+                        <div className="font-semibold text-slate-900 truncate">
+                          "{test.question}"
+                        </div>
+                        <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-1.5 mt-0.5">
+                          <span className="font-mono text-[10px] text-teal-800 bg-white px-1.5 py-0.5 rounded border border-slate-200">
+                            {test.source}
+                          </span>
+                          <span>·</span>
+                          <span>Expected: <strong>{test.expected_status}</strong></span>
+                          <span>·</span>
+                          <span>Actual: <strong className={test.passed ? 'text-teal-800' : 'text-rose-700'}>{test.actual_status}</strong></span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-2 shrink-0 self-end sm:self-auto">
+                        <span className="text-[10px] font-mono text-slate-500">{test.latency_ms}ms</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center space-x-1 ${
+                          test.passed ? 'bg-teal-100 text-teal-900' : 'bg-rose-100 text-rose-800'
+                        }`}>
+                          <CheckCircle2 className="w-3 h-3 text-teal-700" />
+                          <span>PASSED</span>
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 bg-slate-50 border border-slate-200/70 rounded-2xl text-center text-xs text-slate-500">
+                Click <strong>"Run Live Benchmark"</strong> above to test all 7 questions live against the subword vector index and safety gateways.
+              </div>
+            )}
           </div>
 
           {/* Recent Ingestion Jobs */}

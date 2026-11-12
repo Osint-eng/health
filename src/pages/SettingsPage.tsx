@@ -19,12 +19,14 @@ interface SettingsPageProps {
   preferences: UserPreferences;
   onUpdatePreferences: (prefs: Partial<UserPreferences>) => void;
   onClearAllData: () => void;
+  onResetDemoData?: () => void;
 }
 
 export const SettingsPage: React.FC<SettingsPageProps> = ({
   preferences,
   onUpdatePreferences,
   onClearAllData,
+  onResetDemoData,
 }) => {
   const [prefs, setPrefs] = useState<UserPreferences>(preferences);
   const [savedNotice, setSavedNotice] = useState(false);
@@ -204,17 +206,31 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
         {/* Clear Data & Sign out */}
         <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={onClearAllData}
-            className="w-full sm:w-auto px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition-colors flex items-center justify-center space-x-1.5"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>{isTe ? 'అన్ని సంభాషణ డేటాను తుడిచివేయండి' : 'Permanently Delete All Data'}</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            <button
+              type="button"
+              onClick={onClearAllData}
+              className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition-colors flex items-center justify-center space-x-1.5"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>{isTe ? 'డేటాను తుడిచివేయండి' : 'Clear My Data'}</span>
+            </button>
+
+            {onResetDemoData && (
+              <button
+                type="button"
+                onClick={onResetDemoData}
+                title="Restores the pre-loaded WHO and PAHO baseline guidelines, test queries, and reset reviews"
+                className="px-4 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-xl text-xs font-bold transition-colors flex items-center justify-center space-x-1.5 shadow-2xs"
+              >
+                <Server className="w-3.5 h-3.5" />
+                <span>{isTe ? 'డెమో బేస్‌లైన్‌కు రీసెట్ చేయండి' : 'Reset Demo Baseline'}</span>
+              </button>
+            )}
+          </div>
 
           <div className="text-[11px] text-slate-400">
-            {isTe ? 'ఆరోగ్య వాయిస్ v1.0 MVP' : 'Arogya Voice MVP v1.0.4'}
+            {isTe ? 'ఆరోగ్య వాయిస్ v1.0.4' : 'Arogya Voice MVP v1.0.4'}
           </div>
         </div>
       </div>
