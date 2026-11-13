@@ -155,7 +155,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ language, onResetDemoData 
             </h1>
           </div>
           <p className="text-xs sm:text-sm text-slate-500 mt-1">
-            Official document governance, BGE-M3 chunking, review pipeline & safety evaluation queue.
+            Official document governance, dense vector chunking, review pipeline & safety evaluation queue.
           </p>
         </div>
 
@@ -212,7 +212,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ language, onResetDemoData 
               <div className="text-2xl font-extrabold text-slate-900">
                 {metrics?.approved_documents_count || 4}
               </div>
-              <div className="text-[11px] text-slate-400 mt-1">Active in Chroma vector index</div>
+              <div className="text-[11px] text-slate-400 mt-1">Active in dense vector index</div>
             </div>
 
             <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-xs">
@@ -254,7 +254,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ language, onResetDemoData 
             </h3>
 
             <div className="p-4 bg-slate-50 rounded-2xl text-xs font-mono text-slate-700 leading-relaxed overflow-x-auto">
-              Draft → Extracted → Needs review → Approved → Indexed (Chroma)
+              Draft → Extracted → Needs review → Approved → Indexed (1024-Dim Vector Store)
               <br />
               &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↳ Rejected (Excluded from search)
               <br />
@@ -276,11 +276,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({ language, onResetDemoData 
                     Live Automated Clinical Benchmark Suite
                   </h3>
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 text-teal-800">
-                    Colab Grounding Test Set
+                    Evidence & Safety Probes
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 mt-1">
-                  Executes live inquiries against the vector index, emergency gateway, and dosage abstention boundaries with real millisecond latency tracking.
+                  Executes 9 live inquiries against the dense vector index, evidence-strength gates, emergency triage, and dosage abstention boundaries.
                 </p>
               </div>
 
@@ -294,7 +294,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ language, onResetDemoData 
                   {benchmarking ? (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Executing 7 Tests...</span>
+                      <span>Executing 9 Tests...</span>
                     </>
                   ) : (
                     <>

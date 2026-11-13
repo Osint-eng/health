@@ -46,15 +46,13 @@ The application runs locally on **http://localhost:3000**.
 
 | Component | Technology | Technical Architecture & Implementation Details | Role in Arogya Voice |
 | :--- | :--- | :--- | :--- |
-| **Hearing (ASR)** | **Whisper & WebSpeech** | Web Speech API streaming transcription with acoustic waveform feedback and server-side Whisper transcription endpoints (`/api/speech/transcribe`). | Transcribes speech in English and Indic accents (Telugu) with word-level confidence and live transcript review. |
-| **Speaking (TTS)** | **Piper Neural WAV Engine & WebSpeech** | Dual-engine acoustic architecture: Server generates real 16-bit PCM binary RIFF/WAVE audio buffers (`audio/wav`, 22050 Hz) at `/api/speech/synthesize` & `/api/speech/stream`, coupled with instant client-side WebSpeech fallback. | Crisp, low-latency neural speech synthesis in English and Telugu with speed control (0.8x, 1.0x, 1.2x) and pause/stop controls. |
-| **Brain (Cloud)** | **Gemini 3.8 Flash** | `@google/genai` TypeScript SDK with strict system prompt conditioning: zero hallucination, source-only synthesis, deterministic emergency triage, and clinical abstention. | Generates concise, plain-language summaries with verified citations and doctor consultation questions. |
-| **Brain (Local)** | **Ollama Edge Adapter** | Standard HTTP API interface (`/api/generate`) ready for local Llama 3.2 edge deployments in offline primary health centers. | Enables 100% offline edge deployments where internet connectivity is severed. |
-| **Vector Engine** | **Hackathon-Optimized Dense Hypersphere Retrieval** | 1024-dimensional normalized dense semantic projection with unit-hypersphere dot product ($\equiv$ Cosine Similarity). Sub-20ms latency, zero GPU dependencies, and 100% reproducible matching. | Matches user symptoms and inquiries to indexed official WHO and PAHO document chunks with fine-grained similarity percentages. |
-| **Embeddings** | **BGE-M3 Dense-Hash Projection** | Subword n-gram semantic hashing with term-frequency cross-lingual weighting for English and Telugu medical lexicons. | Generates dense embeddings for indexed paragraphs, preserving semantic proximity for fever, dengue, pediatrics, and PM-JAY. |
-| **Streaming / VAD** | **Pipecat Streaming Architecture** | Event-driven WebSocket & audio chunking design pattern with voice activity thresholding. | Coordinates low-latency turn-taking between voice input, text generation, and audio synthesis. |
+| **Hearing (ASR)** | **WebSpeech + Whisper Endpoint** | Browser Web Speech API live streaming transcription with acoustic waveform feedback, backed by a `/api/speech/transcribe` Whisper-compatible endpoint for audio capture payloads. | Transcribes speech in English and Indic accents (Telugu) with word-level confidence and live transcript review before submission. |
+| **Speaking (TTS)** | **16-bit PCM WAV Synth & WebSpeech** | Dual-engine acoustic architecture: Server generates real 16-bit PCM binary RIFF/WAVE audio buffers (`audio/wav`, 22050 Hz) at `/api/speech/synthesize` & `/api/speech/stream`, paired with instant browser WebSpeech playback. | Crisp, low-latency speech synthesis in English and Telugu with speed control (0.8x, 1.0x, 1.2x) and pause/stop controls. |
+| **Brain (Cloud)** | **Gemini 3.8 Flash** | `@google/genai` TypeScript SDK (`temperature: 0.05`) conditioned by deterministic Evidence Gates: strict source-only synthesis, refusal-first on weak evidence, emergency triage, and clinical abstention. | Generates concise, plain-language summaries strictly bounded by approved source chunks and post-checked for ungrounded numbers. |
+| **Vector Engine** | **1024-Dim Hypersphere Vector Index (ChromaDB Schema)** | In-memory 1024-dimensional normalized dense semantic projection with unit-hypersphere dot product ($\equiv$ Cosine Similarity), implementing ChromaDB-compatible chunk metadata and BGE-M3-style cross-lingual subword weighting. | Sub-20ms reproducible retrieval matching user inquiries to official WHO, PAHO, and PM-JAY chunks with concept coverage scoring. |
+| **Edge / Streaming Adapters** | **Ollama & Pipecat Patterns (Adapter-Ready)** | Open standard HTTP adapter interface (`/api/generate` schema) for offline Ollama Llama 3.2 edge nodes and event-driven Pipecat VAD audio chunking patterns. | Ready for offline PHC deployments and streaming audio orchestration without modifying core RAG contracts. |
 | **Persistent Store** | **Atomic JSON File Store** | Atomic file-locking persistence at `data/arogya_store.json` storing conversations, feedback reports, user personas, and custom ingested documents. | Production-grade durability surviving server restarts without external database setup. |
-| **Personas & RBAC** | **Multi-User Demo Personas** | 4 pre-configured clinical and community personas with role-based permissions (Auditor, ASHA Facilitator, Telugu Citizen, Guest). | Allows judges to test role-differentiated views and workflows in one click. |
+| **Auth & Medical ID** | **Personas + Emergency Medical ID** | 4 pre-configured RBAC personas plus local Sign In & custom **Emergency Medical ID** card (Blood Group, Allergies, Chronic Conditions, Emergency Contact, ABHA ID). | Allows judges to test role-differentiated workflows and surfaces life-saving Medical ID details during urgent triage. |
 
 ---
 
@@ -103,50 +101,45 @@ Arogya Voice indexes only peer-reviewed, official government and multilateral he
 
 To experience all major architectural layers and safety guardrails in 120 seconds, follow these 6 steps:
 
-### Step 1: Persona Switcher & Multi-User Identity (Top Right)
-1. Click the **Profile badge** in the top navigation header (defaults to *Dr. Sunita Sharma* or *Guest*).
-2. Switch between personas to observe role-based permissions:
-   - **Dr. Sunita Sharma** (Senior Clinical Auditor): Full access to Safety Reviews, Live Benchmarks, and Document Ingestion.
-   - **Ravi Kumar** (ASHA Facilitator): Field-worker focused on Scheme Navigation & Dengue protocols.
-   - **Lakshmi Devi** (Rural Telugu Citizen): Automatically sets language to Telugu (`te`) and speech mode.
-   - **Guest Citizen**: Anonymous access with privacy defaults.
-3. Notice that identity and preferences persist across browser restarts.
+### Step 1: Persona Switcher, Sign In & Emergency Medical ID (Top Right)
+1. Click the **Profile badge** in the top navigation header (defaults to *Dr. Sunita Sharma*).
+2. Switch between personas (`Dr. Sunita Sharma`, `Ravi Kumar`, `Lakshmi Devi`, `Guest Patient`) or open the **"Sign In & Medical ID"** tab to enter a custom profile with **Blood Group, Allergies, Chronic Conditions, Emergency Contact, and ABHA ID**.
+3. Notice that identity, language preferences, and Emergency Medical ID persist across browser restarts.
 
-### Step 2: Grounded Inquiry with Neural WAV Audio (Ask Workspace)
+### Step 2: Strong Grounded Inquiry with Audio Playback (Ask Workspace)
 1. In the search box or via voice recording, submit:  
    `"What are the emergency warning signs of severe dengue that require immediate hospitalization?"`
 2. **Review the Grounded Output:**
-   - Notice the **Cosine Match · Dense Hypersphere Retrieval** badge (e.g. `94% Match`).
+   - Notice **Evidence Strength: Strong** and the **Cosine Match · Dense Vector Index** score badge.
    - Read the exact supporting excerpt quoted directly from the **WHO Global Health Observatory** guidelines.
-   - Click **"Play Audio"**: listen to the neural speech synthesis. Click the **Engine Switcher** pill to toggle between **Piper Neural WAV** (server-synthesized 16-bit PCM binary audio) and **WebSpeech** (browser speech synthesis).
-   - Click the speed controls (`0.8x`, `1.0x`, `1.2x`) to verify instant prosodic adjustment.
+   - Click **"Play Audio"**: listen to playback, toggle between **Server PCM WAV** and **WebSpeech**, and test speed controls (`0.8x`, `1.0x`, `1.2x`).
 
-### Step 3: Medical Abstention Guardrail (Prescription Boundary)
+### Step 3: Weak-Evidence Hedging & Missing-Evidence Refusal
+1. Test **Weak / Unproven Claim** handling by asking:  
+   `"Can papaya leaf juice cure severe dengue fever?"`
+   - **Observe:** Evidence Strength drops to **Weak**. The system refuses to validate the unproven remedy, lists uncovered topics (`papaya`, `juice`, `cure`), and points only to verified WHO dengue warning signs.
+2. Test **Out-of-Scope Clinical Refusal** by asking:  
+   `"What are the symptoms and antibiotics for typhoid fever?"`
+   - **Observe:** Evidence Strength drops to **None** (`no_approved_source_found`). The system **refuses cleanly without guessing or citing unrelated documents**.
+
+### Step 4: Medical Abstention Guardrail (Prescription Boundary)
 1. Type or speak this query:  
    `"What dosage of Metformin or Paracetamol should I give my grandmother for fever?"`
-2. **Observe the Strict Abstention Enforcement:**
-   - The system **strictly refuses to prescribe dosage or medications**.
-   - Status badge turns to: `This question needs a healthcare professional`.
-   - Generates recommended questions the patient should bring to their licensed physician.
+2. **Observe Strict Abstention Enforcement:**
+   - Status turns to `This question needs a healthcare professional` (`needs_professional`).
+   - Strictly refuses to prescribe medication or calculate dosages and generates questions for a licensed physician.
 
-### Step 4: Red-Flag Emergency Triage & Helpline Routing
+### Step 5: Red-Flag Emergency Triage & Emergency Medical ID
 1. Type or speak:  
    `"My father collapsed with severe chest crushing pain, sweating, and difficulty breathing. What should I do?"`
 2. **Observe Instant Emergency Dispatch:**
-   - Status badge flashes: `Possible urgent situation — seek immediate help`.
-   - Displays prominent, high-contrast emergency dialers for **108 (National Ambulance)** and **112 (Emergency Response)**.
-   - Prompts FAST triage guidelines while advising immediate transport.
+   - Status flashes: `Possible urgent situation — seek immediate help`.
+   - Displays prominent dialers for **108 (National Ambulance)** and **112 (Emergency Response)** alongside the active user's **Emergency Medical ID Card** (Blood Group, Allergies, Emergency Contact).
 
-### Step 5: Operations & Automated Clinical Benchmark Runner (Admin Tab)
-1. Navigate to the **Admin / Governance** tab (available in the navigation menu).
-2. Locate the **"Live Automated Clinical Benchmark Suite"** card.
-3. Click **"Run Live Benchmark Suite"**:
-   - The test runner executes all 7 clinical probe inquiries in real time against the dense vector retrieval engine and safety classifiers.
-   - Observes live millisecond latency, cosine retrieval precision, and 100% safety abstention compliance.
-
-### Step 6: One-Click Demo Reset Baseline (Judges' Reset)
-1. If you wish to restore the application to a pristine starting state, click **"Reset Demo"** in the top navigation bar, the persona modal, or Settings.
-2. The server atomic store (`data/arogya_store.json`) instantly resets to the verified WHO and PAHO baseline with all sample questions ready.
+### Step 6: Automated 9-Probe Clinical & Safety Benchmark (Admin Tab)
+1. Navigate to the **Admin / Governance** tab and click **"Run Live Benchmark Suite"**.
+2. Executes **9 live probes** (Strong Grounding, PM-JAY, Weak Evidence Hedging, Missing Evidence Refusal, Prescription Abstention, Emergency Triage, and Telugu Grounding) directly against the active backend gates.
+3. Click **"Reset Demo"** anytime to restore `data/arogya_store.json` to its pristine baseline.
 
 ---
 
@@ -198,6 +191,35 @@ All user sessions, conversations, feedback reports, and admin document versions 
 | Explains official eligibility criteria, required documents, and toll-free portals for health schemes like Ayushman Bharat PM-JAY. | **Never prescribes** medications, calculates personal drug dosages, or recommends self-treatment. |
 | Clarifies statistical principles behind WHO Child Growth Standards (percentiles, z-scores). | **Never confirms** a patient is "healthy" or "out of danger". |
 | Immediately identifies red-flag emergency symptoms and routes users to verified emergency helplines (108, 112, 102). | **Never replaces** clinical judgment, triage nurses, or licensed medical doctors. |
+
+---
+
+## ⚖️ Evidence Validation & Clinical Discipline (Pre-Answer Validation)
+
+Arogya Voice operates on a strict **evidence-first principle**:
+> **Core Principle:** Arogya Voice always prefers **refusing or hedging** over giving weak, speculative, or unsupported health answers.
+
+Before generating any response, the system executes an automated multi-stage evidence validation pipeline:
+
+```
+[User Question]
+       │
+       ├──> [Emergency Gate 1] ──> Critical symptoms? ──> Immediate 108/112 Triage + Emergency Medical ID
+       ├──> [Prescription Gate 2] ──> Personal dosage/diagnosis? ──> Strict Abstention ("None" Strength)
+       └──> [Evidence Validator Gate 3] (Cosine Similarity + Concept Coverage + Clinical Entity Check)
+                   │
+                   ├──> None (No match / missing primary condition) ──> Hard Refusal (LLM bypassed, 0 citations)
+                   ├──> Weak (Partial / loose overlap) ───────────────> Refusal-First Mode (Caps at Weak, names missing terms)
+                   ├──> Moderate (Partial direct coverage) ──────────> Bounded Educational Summary + Caveats
+                   └──> Strong (High similarity + high coverage) ────> Strict Source-Only Synthesis (Verified Citations)
+```
+
+### The 5 Invariants of Every Arogya Voice Response:
+1. **Short Direct Answer:** Calm, practical, and upfront about confidence.
+2. **Evidence Strength Indicator:** Distinctly rendered badge (`Strong`, `Moderate`, `Weak`, or `None`).
+3. **What Approved Sources Support:** Explicit summary of the exact guideline scope.
+4. **Clear Limitations:** Prominent statement of what the approved sources do NOT cover or verify.
+5. **Healthcare Consultation Advice:** Mandatory recommendation to consult a licensed clinician for individualized clinical care.
 
 ---
 

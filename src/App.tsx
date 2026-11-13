@@ -213,6 +213,7 @@ export default function App() {
               <AskPage
                 currentConversation={currentConversation}
                 language={language}
+                userProfile={currentUser}
                 onLanguageChange={handleLanguageChange}
                 onNewConversation={() => handleNewConversation()}
                 onUpdateConversation={(updated) => {
@@ -263,6 +264,8 @@ export default function App() {
               <UrgentHelpPage
                 language={language}
                 onBack={() => setCurrentTab('home')}
+                userProfile={currentUser}
+                onEditMedicalId={() => setShowAuthModal(true)}
               />
             )}
 

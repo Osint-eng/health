@@ -23,6 +23,8 @@ export interface Citation {
   cosine_distance?: number;  // e.g. 0.06
 }
 
+export type EvidenceStrength = 'Strong' | 'Moderate' | 'Weak' | 'None';
+
 export interface Message {
   id: string;
   conversation_id: string;
@@ -31,6 +33,11 @@ export interface Message {
   spoken_text?: string;
   language: Language;
   status: EvidenceStatus;
+  evidence_strength?: EvidenceStrength;
+  evidence_support_summary?: string;
+  limitations?: string;
+  consultation_recommendation?: string;
+  missing_topics?: string[];
   citations: Citation[];
   detailed_explanation?: string;
   questions_to_ask_doctor?: string[];
@@ -96,15 +103,26 @@ export interface DocumentSource {
 
 export type UserRole = 'patient' | 'asha_worker' | 'clinical_reviewer' | 'admin';
 
+export interface EmergencyMedicalId {
+  blood_group?: string;
+  allergies?: string;
+  chronic_conditions?: string;
+  emergency_contact_name?: string;
+  emergency_contact_phone?: string;
+  abha_id?: string;
+}
+
 export interface UserProfile {
   id: string;
   name: string;
   email?: string;
+  phone?: string;
   role: UserRole;
   badge: string;
   organization?: string;
   preferred_language: Language;
   avatar_color: string;
+  medical_id?: EmergencyMedicalId;
   permissions: {
     can_ask: boolean;
     can_browse_library: boolean;

@@ -16,7 +16,7 @@ import {
   XCircle,
   X,
 } from 'lucide-react';
-import { Citation, Conversation, Language, Message } from '../types';
+import { Citation, Conversation, Language, Message, UserProfile } from '../types';
 import { api } from '../services/api';
 import { speechRecognizer, speechSynthesizer } from '../services/speech';
 import { AudioVisualizer } from '../components/AudioVisualizer';
@@ -30,6 +30,7 @@ import { TRANSLATIONS } from '../locales/translations';
 interface AskPageProps {
   currentConversation: Conversation | null;
   language: Language;
+  userProfile?: UserProfile;
   onLanguageChange: (lang: Language) => void;
   onNewConversation: () => void;
   onUpdateConversation: (conv: Conversation) => void;
@@ -52,6 +53,7 @@ type AssistantState =
 export const AskPage: React.FC<AskPageProps> = ({
   currentConversation,
   language,
+  userProfile,
   onLanguageChange,
   onNewConversation,
   onUpdateConversation,
@@ -90,6 +92,7 @@ export const AskPage: React.FC<AskPageProps> = ({
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const timerRef = useRef<any>(null);
+  const transcriptRef = useRef<string>('');
 
   // Auto-scroll to latest message
   useEffect(() => {
@@ -128,9 +131,11 @@ export const AskPage: React.FC<AskPageProps> = ({
     }
 
     try {
+      transcriptRef.current = '';
       speechRecognizer.startListening(
         language,
         (text, isFinal) => {
+          transcriptRef.current = text;
           setTranscriptDraft(text);
           if (isFinal) {
             stopVoiceRecording();
@@ -143,7 +148,7 @@ export const AskPage: React.FC<AskPageProps> = ({
         },
         () => {
           stopTimer();
-          if (transcriptDraft.trim()) {
+          if (transcriptRef.current.trim()) {
             setAssistantState('review_transcript');
           } else {
             setAssistantState('idle');
@@ -166,8 +171,12 @@ export const AskPage: React.FC<AskPageProps> = ({
     stopTimer();
     setAssistantState('transcribing');
     setTimeout(() => {
-      setAssistantState('review_transcript');
-    }, 400);
+      if (transcriptRef.current.trim()) {
+        setAssistantState('review_transcript');
+      } else {
+        setAssistantState('idle');
+      }
+    }, 350);
   };
 
   const stopTimer = () => {
@@ -178,6 +187,7 @@ export const AskPage: React.FC<AskPageProps> = ({
   };
 
   const handleClearTranscript = () => {
+    transcriptRef.current = '';
     setTranscriptDraft('');
     setAssistantState('idle');
   };
@@ -207,28 +217,27 @@ export const AskPage: React.FC<AskPageProps> = ({
 
   const executeQuery = async (convId: string, text: string) => {
     setInputText('');
+    transcriptRef.current = '';
     setTranscriptDraft('');
     setErrorMessage('');
 
-    // State sequence
+    // State sequence with clean timer cancellation
     setAssistantState('searching_sources');
+    const prepTimer = setTimeout(() => {
+      setAssistantState('preparing_answer');
+    }, 350);
 
     try {
-      setTimeout(() => {
-        setAssistantState('preparing_answer');
-      }, 350);
-
       const assistantMsg = await api.sendMessage(convId, text, language);
+      clearTimeout(prepTimer);
 
       setAssistantState('validating_answer');
-      setTimeout(() => {
-        setAssistantState('ready_speaking');
-      }, 300);
 
       // Refresh conversation state
       const updated = await api.getConversation(convId);
       onUpdateConversation(updated);
 
+      setAssistantState('ready_speaking');
       // Auto read answer aloud via TTS
       if (assistantMsg.spoken_text) {
         speechSynthesizer.speak(assistantMsg.spoken_text, language);
@@ -236,8 +245,9 @@ export const AskPage: React.FC<AskPageProps> = ({
 
       setTimeout(() => {
         setAssistantState('idle');
-      }, 1200);
+      }, 900);
     } catch (err: any) {
+      clearTimeout(prepTimer);
       setAssistantState('error');
       setErrorMessage(err.message || 'Could not complete grounded answer verification.');
     }
@@ -389,22 +399,48 @@ export const AskPage: React.FC<AskPageProps> = ({
               </p>
             </div>
 
-            {/* Quick Sample Questions */}
+            {/* Quick Sample Questions (Categorized for Grounded + Evidence Gate Testing) */}
             <div className="grid grid-cols-1 gap-2 pt-2 text-left">
               {[
-                isTe ? t.sampleQuestionMosquito : 'What are the emergency warning signs of severe dengue that require immediate hospitalization?',
-                isTe ? t.sampleQuestionChildGrowth : 'How should parents interpret WHO Child Growth Standard percentiles and z-scores?',
-                isTe ? t.sampleQuestionFever : 'What red flags with a fever indicate a patient needs urgent emergency medical evaluation?',
-                isTe ? t.sampleQuestion4 : 'What documents are required to apply for Ayushman Bharat PM-JAY and generate the Golden Card?',
-              ].map((sample, idx) => (
+                {
+                  badge: isTe ? 'బలమైన ఆధారం' : 'Strong Evidence',
+                  badgeClass: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+                  q: isTe ? t.sampleQuestionMosquito : 'What are the emergency warning signs of severe dengue that require immediate hospitalization?',
+                },
+                {
+                  badge: isTe ? 'పథకం' : 'PM-JAY Scheme',
+                  badgeClass: 'bg-teal-50 text-teal-800 border-teal-200',
+                  q: isTe ? t.sampleQuestion4 : 'What documents are required to apply for Ayushman Bharat PM-JAY and generate the Golden Card?',
+                },
+                {
+                  badge: isTe ? 'బలహీన ఆధారం' : 'Weak Evidence Test',
+                  badgeClass: 'bg-amber-50 text-amber-800 border-amber-200',
+                  q: isTe ? 'బొప్పాయి ఆకు రసంతో డెంగ్యూ నయమవుతుందా?' : 'Can papaya leaf juice cure severe dengue fever?',
+                },
+                {
+                  badge: isTe ? 'ఆధారం లేదు (నిరాకరణ)' : 'Missing Evidence Refusal',
+                  badgeClass: 'bg-rose-50 text-rose-800 border-rose-200',
+                  q: isTe ? 'టైఫాయిడ్ జ్వరం లక్షణాలు మరియు యాంటీబయాటిక్స్ ఏమిటి?' : 'What are the symptoms and antibiotics for typhoid fever?',
+                },
+                {
+                  badge: isTe ? 'డోసేజ్ తిరస్కరణ' : 'Dosage Abstention',
+                  badgeClass: 'bg-amber-50 text-amber-900 border-amber-300',
+                  q: isTe ? 'నా తండ్రికి మెట్‌ఫార్మిన్ మోతాదు ఎంత ఇవ్వాలి?' : 'What is the dosage of Metformin for my 12-year-old cousin?',
+                },
+              ].map((item, idx) => (
                 <button
                   key={idx}
                   type="button"
-                  onClick={() => handleSendQuestion(sample)}
-                  className="p-3 bg-white hover:bg-teal-50/70 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 hover:text-teal-900 transition-all text-left flex items-center justify-between group shadow-2xs"
+                  onClick={() => handleSendQuestion(item.q)}
+                  className="p-3 bg-white hover:bg-teal-50/70 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 hover:text-teal-900 transition-all text-left flex items-center justify-between group shadow-2xs gap-2"
                 >
-                  <span className={isTe ? 'font-telugu' : ''}>{sample}</span>
-                  <Send className="w-3 h-3 text-slate-300 group-hover:text-teal-700 shrink-0 ml-2" />
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0 ${item.badgeClass}`}>
+                      {item.badge}
+                    </span>
+                    <span className={`truncate ${isTe ? 'font-telugu' : ''}`}>{item.q}</span>
+                  </div>
+                  <Send className="w-3 h-3 text-slate-300 group-hover:text-teal-700 shrink-0" />
                 </button>
               ))}
             </div>
@@ -435,6 +471,7 @@ export const AskPage: React.FC<AskPageProps> = ({
                 <AnswerCard
                   message={msg}
                   language={language}
+                  userProfile={userProfile}
                   onViewSource={(cite) => setActiveCitation(cite)}
                   onReportIssue={(m) => setReportingMessage(m)}
                 />

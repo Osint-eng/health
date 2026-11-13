@@ -11,13 +11,17 @@ import {
   Flag,
   HelpCircle,
   Sparkles,
+  AlertCircle,
+  CheckCircle2,
+  AlertOctagon,
 } from 'lucide-react';
-import { Citation, EvidenceStatus, Language, Message } from '../types';
+import { Citation, EvidenceStatus, Language, Message, UserProfile } from '../types';
 import { AudioPlayer } from './AudioPlayer';
 
 interface AnswerCardProps {
   message: Message;
   language: Language;
+  userProfile?: UserProfile;
   onViewSource: (citation: Citation) => void;
   onReportIssue: (message: Message) => void;
   onSaveToHistory?: (message: Message) => void;
@@ -26,6 +30,7 @@ interface AnswerCardProps {
 export const AnswerCard: React.FC<AnswerCardProps> = ({
   message,
   language,
+  userProfile,
   onViewSource,
   onReportIssue,
   onSaveToHistory,
@@ -93,14 +98,56 @@ export const AnswerCard: React.FC<AnswerCardProps> = ({
           : 'bg-white border-slate-200/90 shadow-slate-100'
       }`}
     >
-      {/* Top Evidence Status Badge */}
+      {/* Top Evidence Status & Evidence Strength Badges */}
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-        <span
-          className={`inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${statusInfo.classes}`}
-        >
-          <StatusIcon className="w-3.5 h-3.5 shrink-0" />
-          <span>{isTe ? statusInfo.textTe : statusInfo.textEn}</span>
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={`inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${statusInfo.classes}`}
+          >
+            <StatusIcon className="w-3.5 h-3.5 shrink-0" />
+            <span>{isTe ? statusInfo.textTe : statusInfo.textEn}</span>
+          </span>
+
+          {/* Evidence Strength Badge */}
+          {message.evidence_strength && (
+            <span
+              className={`inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border shadow-2xs ${
+                message.evidence_strength === 'Strong'
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                  : message.evidence_strength === 'Moderate'
+                  ? 'bg-sky-50 text-sky-800 border-sky-300'
+                  : message.evidence_strength === 'Weak'
+                  ? 'bg-amber-50 text-amber-900 border-amber-300'
+                  : 'bg-rose-50 text-rose-800 border-rose-300'
+              }`}
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  message.evidence_strength === 'Strong'
+                    ? 'bg-emerald-500'
+                    : message.evidence_strength === 'Moderate'
+                    ? 'bg-sky-500'
+                    : message.evidence_strength === 'Weak'
+                    ? 'bg-amber-500 animate-pulse'
+                    : 'bg-rose-500'
+                }`}
+              />
+              <span>
+                {isTe
+                  ? `ఆధారాల బలం: ${
+                      message.evidence_strength === 'Strong'
+                        ? 'బలంగా ఉంది (Strong)'
+                        : message.evidence_strength === 'Moderate'
+                        ? 'మధ్యస్థం (Moderate)'
+                        : message.evidence_strength === 'Weak'
+                        ? 'బలహీనం (Weak)'
+                        : 'లేదు (None)'
+                    }`
+                  : `Evidence Strength: ${message.evidence_strength}`}
+              </span>
+            </span>
+          )}
+        </div>
 
         {/* Audio Player for this answer */}
         <AudioPlayer
@@ -109,10 +156,72 @@ export const AnswerCard: React.FC<AnswerCardProps> = ({
         />
       </div>
 
+      {/* Weak / None Evidence Discipline Banner */}
+      {(message.evidence_strength === 'Weak' || message.evidence_strength === 'None') && !message.is_urgent && (
+        <div
+          className={`mb-4 p-3 rounded-xl border text-xs flex items-start space-x-2 ${
+            message.evidence_strength === 'None'
+              ? 'bg-rose-50/90 border-rose-200 text-rose-900'
+              : 'bg-amber-50/90 border-amber-300 text-amber-950'
+          }`}
+        >
+          <AlertOctagon className={`w-4 h-4 shrink-0 mt-0.5 ${message.evidence_strength === 'None' ? 'text-rose-700' : 'text-amber-700'}`} />
+          <div>
+            <span className="font-bold block">
+              {message.evidence_strength === 'None'
+                ? isTe
+                  ? 'ఆధారాల ధృవీకరణ తిరస్కరణ — సమాధానం నిలిపివేయబడింది'
+                  : 'Evidence Gate: Refused to Answer Without Approved Sources'
+                : isTe
+                ? 'తక్కువ ఆధారాల హెచ్చరిక — పరిమిత సమాచారం మాత్రమే'
+                : 'Evidence Gate: Weak / Partial Evidence — Refusal & Caveat Mode Active'}
+            </span>
+            {message.missing_topics && message.missing_topics.length > 0 && (
+              <span className="text-[11px] opacity-90 block mt-0.5">
+                {isTe ? 'ఆమోదిత పత్రాలలో లేని అంశాలు: ' : 'Not found in approved sources: '}
+                <strong>{message.missing_topics.slice(0, 6).join(', ')}</strong>
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Emergency Medical ID Card for Urgent Responses */}
+      {message.is_urgent && userProfile?.medical_id && (
+        <div className="mb-4 p-3.5 rounded-xl bg-white border-2 border-red-300 text-xs shadow-2xs">
+          <div className="flex items-center justify-between mb-2">
+            <span className="font-extrabold text-red-800 uppercase tracking-wider text-[11px]">
+              {isTe ? 'రోగి అత్యవసర వైద్య గుర్తింపు (Emergency Medical ID)' : `Emergency Medical ID — ${userProfile.name}`}
+            </span>
+            {userProfile.medical_id.blood_group && (
+              <span className="px-2 py-0.5 rounded-md bg-red-600 text-white font-extrabold text-[11px]">
+                Blood: {userProfile.medical_id.blood_group}
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] text-slate-700">
+            <div>
+              <span className="font-bold text-slate-500 block">Allergies:</span>
+              <span className="font-semibold text-red-900">{userProfile.medical_id.allergies || 'None listed'}</span>
+            </div>
+            <div>
+              <span className="font-bold text-slate-500 block">Conditions:</span>
+              <span className="font-semibold">{userProfile.medical_id.chronic_conditions || 'None listed'}</span>
+            </div>
+            <div>
+              <span className="font-bold text-slate-500 block">Emergency Contact:</span>
+              <span className="font-semibold text-slate-900">
+                {userProfile.medical_id.emergency_contact_name} ({userProfile.medical_id.emergency_contact_phone})
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Short Answer (Plain Language) */}
       <div className="mb-4">
         <h4 className="text-xs uppercase tracking-wider font-bold text-slate-400 mb-1">
-          {isTe ? 'సంక్షిప్త సమాధానం (Short Answer)' : 'Concise Answer'}
+          {isTe ? 'సంక్షిప్త సమాధానం (Short Direct Answer)' : 'Short Direct Answer'}
         </h4>
         <p
           className={`text-slate-900 text-base md:text-lg leading-relaxed font-medium ${
@@ -122,6 +231,50 @@ export const AnswerCard: React.FC<AnswerCardProps> = ({
           {message.text}
         </p>
       </div>
+
+      {/* What Approved Sources Support */}
+      {message.evidence_support_summary && (
+        <div className="mb-3 p-3 rounded-xl bg-slate-50 border border-slate-200/80 text-xs text-slate-800 flex items-start space-x-2">
+          <CheckCircle2 className="w-4 h-4 text-teal-700 shrink-0 mt-0.5" />
+          <div>
+            <span className="font-bold text-slate-900 block mb-0.5">
+              {isTe ? 'ఆమోదిత ఆధారాలు అందించే సమాచారం:' : 'What Approved Sources Support:'}
+            </span>
+            <span className="leading-relaxed">{message.evidence_support_summary}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Clear Limitations Callout */}
+      {message.limitations && (
+        <div className="mb-3 p-3 rounded-xl bg-amber-50/70 border border-amber-200/90 text-xs text-amber-950 flex items-start space-x-2">
+          <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+          <div>
+            <span className="font-bold text-amber-900 block mb-0.5">
+              {isTe ? 'పరిధి & పరిమితులు (ఈ పత్రాలు కవర్ చేయని అంశాలు):' : 'Evidence Limitations (What Sources Do Not Cover):'}
+            </span>
+            <span className="leading-relaxed">{message.limitations}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Recommendation to Consult a Healthcare Professional */}
+      {(message.consultation_recommendation || message.status === 'needs_professional' || message.status === 'urgent_help') && (
+        <div className="mb-4 p-3 rounded-xl bg-teal-50/60 border border-teal-200/80 text-xs text-teal-950 flex items-start space-x-2">
+          <Stethoscope className="w-4 h-4 text-teal-800 shrink-0 mt-0.5" />
+          <div>
+            <span className="font-bold text-teal-900 block mb-0.5">
+              {isTe ? 'వైద్య సంప్రదింపు సూచన:' : 'Clinical Consultation Advice:'}
+            </span>
+            <span className="leading-relaxed">
+              {message.consultation_recommendation ||
+                (isTe
+                  ? 'వ్యక్తిగత ఆరోగ్య సమస్యల కోసం దయచేసి అర్హత కలిగిన వైద్యుడిని లేదా సమీప ఆరోగ్య కేంద్రాన్ని సంప్రదించండి.'
+                  : 'For personal health symptoms or clinical treatment, always consult a qualified healthcare professional.')}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Expandable "More Detail" Section */}
       {message.detailed_explanation && (
