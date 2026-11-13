@@ -173,8 +173,8 @@ export const AnswerCard: React.FC<AnswerCardProps> = ({
                   ? 'ఆధారాల ధృవీకరణ తిరస్కరణ — సమాధానం నిలిపివేయబడింది'
                   : 'Evidence Gate: Refused to Answer Without Approved Sources'
                 : isTe
-                ? 'తక్కువ ఆధారాల హెచ్చరిక — పరిమిత సమాచారం మాత్రమే'
-                : 'Evidence Gate: Weak / Partial Evidence — Refusal & Caveat Mode Active'}
+                ? 'తక్కువ ఆధారాల హెచ్చరిక — జాగ్రత్తగా పరిమిత సమాచారం మాత్రమే'
+                : 'Evidence Gate: Weak / Limited Evidence — Cautious Response Mode Active'}
             </span>
             {message.missing_topics && message.missing_topics.length > 0 && (
               <span className="text-[11px] opacity-90 block mt-0.5">
@@ -221,7 +221,13 @@ export const AnswerCard: React.FC<AnswerCardProps> = ({
       {/* Short Answer (Plain Language) */}
       <div className="mb-4">
         <h4 className="text-xs uppercase tracking-wider font-bold text-slate-400 mb-1">
-          {isTe ? 'సంక్షిప్త సమాధానం (Short Direct Answer)' : 'Short Direct Answer'}
+          {message.evidence_strength === 'None'
+            ? isTe
+              ? 'ఆధారాల తిరస్కరణ (Refusal)'
+              : 'Evidence Refusal'
+            : isTe
+            ? 'సంక్షిప్త సమాధానం (Short Direct Answer)'
+            : 'Short Direct Answer'}
         </h4>
         <p
           className={`text-slate-900 text-base md:text-lg leading-relaxed font-medium ${
@@ -247,11 +253,31 @@ export const AnswerCard: React.FC<AnswerCardProps> = ({
 
       {/* Clear Limitations Callout */}
       {message.limitations && (
-        <div className="mb-3 p-3 rounded-xl bg-amber-50/70 border border-amber-200/90 text-xs text-amber-950 flex items-start space-x-2">
-          <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+        <div
+          className={`mb-3 p-3 rounded-xl border text-xs flex items-start space-x-2 ${
+            message.evidence_strength === 'Moderate'
+              ? 'bg-sky-50/70 border-sky-200/90 text-sky-950'
+              : 'bg-amber-50/70 border-amber-200/90 text-amber-950'
+          }`}
+        >
+          <AlertCircle
+            className={`w-4 h-4 shrink-0 mt-0.5 ${
+              message.evidence_strength === 'Moderate' ? 'text-sky-700' : 'text-amber-700'
+            }`}
+          />
           <div>
-            <span className="font-bold text-amber-900 block mb-0.5">
-              {isTe ? 'పరిధి & పరిమితులు (ఈ పత్రాలు కవర్ చేయని అంశాలు):' : 'Evidence Limitations (What Sources Do Not Cover):'}
+            <span
+              className={`font-bold block mb-0.5 ${
+                message.evidence_strength === 'Moderate' ? 'text-sky-900' : 'text-amber-900'
+              }`}
+            >
+              {message.evidence_strength === 'Moderate'
+                ? isTe
+                  ? 'పరిమితులు (Moderate Evidence — సాధారణ మార్గదర్శకం మాత్రమే):'
+                  : 'Limitations (Moderate Evidence — General Guidance Only):'
+                : isTe
+                ? 'పరిధి & పరిమితులు (ఈ పత్రాలు కవర్ చేయని అంశాలు):'
+                : 'Evidence Limitations (What Sources Do Not Cover):'}
             </span>
             <span className="leading-relaxed">{message.limitations}</span>
           </div>

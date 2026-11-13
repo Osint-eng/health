@@ -966,7 +966,13 @@ app.post('/api/conversations/:id/messages', async (req: Request, res: Response) 
   let evidenceStrength: EvidenceStrength = evaluation.strength;
   let evidenceStatus: EvidenceStatus = evaluation.status;
 
-  const citations: Citation[] = topMatches.map((m) => ({
+  // For Weak evidence, only attach genuinely relevant partial excerpts (not noisy tail chunks)
+  const citationMatches =
+    evidenceStrength === 'Weak'
+      ? topMatches.filter((m, idx) => idx === 0 || m.similarity_score >= 0.34)
+      : topMatches;
+
+  const citations: Citation[] = citationMatches.map((m) => ({
     source_id: m.doc.id,
     document_title: m.doc.title,
     publisher: m.doc.publisher,
@@ -998,10 +1004,10 @@ app.post('/api/conversations/:id/messages', async (req: Request, res: Response) 
   // Calibrate baseline summaries strictly from evaluation.strength
   if (evidenceStrength === 'Weak') {
     evidenceSupportSummary = isTe
-      ? `పాక్షిక సమాచారం మాత్రమే: ${primaryMatch.doc.publisher} పత్రంలో కొంత సంబంధిత వివరాలు మాత్రమే ఉన్నాయి.`
-      : `Partial overlap only with ${primaryMatch.doc.publisher} (${primaryMatch.chunk.section}). Does NOT answer the full question.`;
+      ? `పరిమిత/పాక్షిక సమాచారం మాత్రమే: ${primaryMatch.doc.publisher} పత్రంలో కొంత సంబంధిత వివరాలు మాత్రమే ఉన్నాయి.`
+      : `Limited partial overlap only with ${primaryMatch.doc.publisher} (${primaryMatch.chunk.section}). Does NOT answer the full question.`;
     limitations = isTe
-      ? `మా ఆమోదిత పత్రాలలో "${missingGapText || 'ఈ నిర్దిష్ట అంశం'}" గురించి ఎటువంటి సమాచారం లేదా మార్గదర్శకాలు లేవు. దీనిపై ఆధారపడవద్దు.`
+      ? `మా ఆమోదిత పత్రాలలో "${missingGapText || 'ఈ నిర్దిష్ట అంశం'}" గురించి పూర్తి సమాచారం లేదా మార్గదర్శకాలు లేవు. దీనిపై ఆధారపడవద్దు.`
       : `Clear Gap: Our approved sources do NOT cover "${missingGapText || 'your specific query focus'}". Do not treat general excerpts as a recommendation for unverified remedies or conditions.`;
     consultationRecommendation = isTe
       ? 'ఆధారాలు అసంపూర్ణంగా మరియు బలహీనంగా ఉన్నందున, దయచేసి అర్హత కలిగిన వైద్యుడిని తప్పకుండా సంప్రదించండి.'
@@ -1011,8 +1017,8 @@ app.post('/api/conversations/:id/messages', async (req: Request, res: Response) 
       ? `[${primaryMatch.doc.publisher}] యొక్క అధికారిక నివేదికల నుండి సేకరించిన సాధారణ సమాచారం.`
       : `Grounded in reviewed general guidance from ${primaryMatch.doc.publisher} (${primaryMatch.chunk.section}).`;
     limitations = isTe
-      ? 'సాధారణ ప్రజారోగ్య సమాచారం మాత్రమే; ఇది వ్యక్తిగత వైద్య చరిత్ర లేదా ప్రయోగశాల పరీక్షలను పరిగణనలోకి తీసుకోదు.'
-      : 'General public health education only. Does not address individual patient lab values, comorbidities, or personalized treatment plans.';
+      ? `సాధారణ ప్రజారోగ్య సమాచారం మాత్రమే${missingGapText ? ` (${missingGapText} పై నిర్దిష్ట వివరాలు పరిమితం)` : ''}; ఇది వ్యక్తిగత వైద్య చరిత్ర లేదా ప్రయోగశాల పరీక్షలను పరిగణనలోకి తీసుకోదు.`
+      : `Moderate scope: General public health education only${missingGapText ? ` (sources do not directly detail: ${missingGapText})` : ''}. Does not address individual lab values, comorbidities, or personalized treatment plans.`;
   } else {
     evidenceSupportSummary = isTe
       ? `[${primaryMatch.doc.publisher}] యొక్క ప్రాథమిక నివేదికల ద్వారా ప్రత్యక్షంగా ధృవీకరించబడింది (${primaryMatch.chunk.section}).`
@@ -1022,7 +1028,7 @@ app.post('/api/conversations/:id/messages', async (req: Request, res: Response) 
       : 'Applies strictly to reviewed public health reference standards. Does not replace physical examination or diagnostic evaluation by a licensed clinician.';
   }
 
-  const evidenceContext = topMatches
+  const evidenceContext = citationMatches
     .map(
       (m, idx) =>
         `[Source ${idx + 1}: ${m.doc.title} by ${m.doc.publisher}, Section: ${m.chunk.section}, Cosine Score: ${m.similarity_score}]\n${m.chunk.text}`
@@ -1034,31 +1040,39 @@ app.post('/api/conversations/:id/messages', async (req: Request, res: Response) 
     try {
       const strengthDirective =
         evidenceStrength === 'Weak'
-          ? `CRITICAL BEHAVIOUR MODE = WEAK EVIDENCE REFUSAL-FIRST:
-- The retrieved passages only weakly/partially touch on this topic and are MISSING key concepts from the user's question: [${missingGapText}].
-- You MUST begin "short_answer" by clearly refusing the unsupported claim/part: "I don't have enough approved evidence to answer this completely."
-- State explicitly what the approved sources do NOT mention (${missingGapText}).
-- You may briefly state ONLY the narrow verified fact present in [Source 1..3], without extrapolating, guessing, or answering the missing part.
-- Set "evidence_strength" to "Weak" (or "None" if the sources cannot safely contribute anything useful).`
-          : `BEHAVIOUR MODE = ${evidenceStrength.toUpperCase()} GROUNDED SYNTHESIS:
-- Summarize ONLY facts explicitly stated in [Source 1..3].
-- Do NOT introduce any outside clinical facts, numbers, drug names, or home remedies not printed word-for-word in [Source 1..3].
-- Keep "evidence_strength" at most "${evidenceStrength}" (you may downgrade to "Weak" or "None" if you judge the sources don't actually answer the question).`;
+          ? `CRITICAL BEHAVIOUR MODE = WEAK EVIDENCE (CAUTIOUS & REFUSAL-FIRST):
+- Approved evidence is LIMITED and does NOT fully answer this question. Uncovered concepts: [${missingGapText || 'specific focus'}].
+- Do NOT give a normal full answer.
+- Begin "short_answer" by clearly stating that approved evidence is limited / insufficient to answer completely (e.g., "I don't have enough approved evidence to answer this completely...").
+- Explicitly note what the approved sources do NOT cover (${missingGapText || 'specific details'}).
+- Only include a brief, cautious partial fact from [Source 1..3] if strictly relevant and safe; otherwise refuse. Never guess or extrapolate.
+- Set "evidence_strength" to "Weak" (or downgrade to "None" if sources cannot safely help).`
+          : evidenceStrength === 'Moderate'
+          ? `BEHAVIOUR MODE = MODERATE EVIDENCE (GROUNDED WITH EXPLICIT LIMITATIONS):
+- Give a grounded educational answer using ONLY facts printed in [Source 1..3].
+- Because evidence is Moderate rather than comprehensive (${missingGapText ? `uncovered terms: ${missingGapText}` : 'general guideline scope'}), you MUST explicitly note scope limitations inside "short_answer" (e.g., noting that approved sources provide general guidance only and do not cover all individual details).
+- Never invent outside facts, numbers, drugs, or diagnoses.
+- Keep "evidence_strength" at most "Moderate" (downgrade to "Weak" or "None" if needed).`
+          : `BEHAVIOUR MODE = STRONG EVIDENCE (DIRECT GROUNDED ANSWER):
+- The retrieved approved passages directly support this question.
+- Provide a clear, direct, accurate answer strictly using facts printed in [Source 1..3].
+- Do NOT introduce any outside clinical facts, numbers, drug names, or remedies not present in [Source 1..3].
+- Keep "evidence_strength" at most "Strong" (downgrade to "Moderate", "Weak", or "None" if you judge coverage is incomplete).`;
 
       const systemInstruction = `You are Arogya Voice, an evidence-disciplined, source-grounded healthcare information assistant strictly bound to reviewed WHO, PAHO, and National Health Authority documents.
 
 CORE PRINCIPLE:
-Prefer refusing or heavy hedging over giving weak, speculative, or unsupported answers. Never invent anything outside the provided context.
+Prefer refusing or strong hedging over giving weak, speculative, or unsupported answers. Honesty and safety are more important than always giving an answer.
 
 ${strengthDirective}
 
 REQUIRED JSON OUTPUT FORMAT:
 {
-  "short_answer": "Calm, practical direct answer (2-3 sentences). Must start with refusal/low-confidence statement if evidence is Weak or None.",
+  "short_answer": "Calm, practical direct answer (2-3 sentences). Must clearly state refusal/limited evidence if Weak/None, or clearly note scope limitations if Moderate.",
   "evidence_strength": "Strong" | "Moderate" | "Weak" | "None",
-  "evidence_support_summary": "1-2 sentences stating strictly what the provided sources cover.",
+  "evidence_support_summary": "1-2 sentences stating strictly what the provided sources cover (if any).",
   "limitations": "1-2 sentences stating clearly what the sources do NOT cover or cannot confirm.",
-  "consultation_recommendation": "Clear recommendation to consult a licensed healthcare professional for personal or clinical care.",
+  "consultation_recommendation": "Clear recommendation to consult a licensed healthcare professional when relevant.",
   "detailed_explanation": "Careful explanation strictly inside the source excerpts, separating general educational information from personal medical advice.",
   "questions_for_doctor": ["Question 1 to ask a clinician", "Question 2 to ask a clinician"]
 }
@@ -1182,9 +1196,24 @@ Return valid JSON only.`;
         lowerAns.includes('పరిమిత');
       if (!hasExplicitHedge) {
         shortAnswer = isTe
-          ? `తగినంత ఆధారం లేదు (తక్కువ విశ్వసనీయత): ${shortAnswer}`
-          : `I don't have enough approved evidence to answer this completely (Weak Evidence): ${shortAnswer}`;
+          ? `పరిమిత ఆధారం మాత్రమే (తక్కువ విశ్వసనీయత): ${shortAnswer}`
+          : `Limited approved evidence — cannot answer completely: ${shortAnswer}`;
       }
+    }
+  } else if (evidenceStrength === 'Moderate' && shortAnswer) {
+    // Ensure Moderate LLM outputs always explicitly mention scope/limitations
+    const lowerAns = shortAnswer.toLowerCase();
+    const mentionsLimitation =
+      lowerAns.includes('limit') ||
+      lowerAns.includes('general') ||
+      lowerAns.includes('note') ||
+      lowerAns.includes('does not') ||
+      lowerAns.includes('పరిమిత') ||
+      lowerAns.includes('సాధారణ');
+    if (!mentionsLimitation) {
+      shortAnswer = isTe
+        ? `${shortAnswer} (గమనిక: ఇది సాధారణ ప్రజారోగ్య మార్గదర్శకం మాత్రమే — వ్యక్తిగత వైద్య పరిస్థితులకు వర్తించదు.)`
+        : `${shortAnswer} (Note: Approved sources provide general guidance only and do not cover all individual details.)`;
     }
   }
 
@@ -1192,14 +1221,14 @@ Return valid JSON only.`;
   if (!shortAnswer) {
     if (evidenceStrength === 'Weak') {
       if (isTe) {
-        shortAnswer = `ఈ ప్రశ్నకు పూర్తి సమాధానం ఇవ్వడానికి మా ఆమోదిత లైబ్రరీలో తగినంత ఆధారం లేదు (${missingGapText || 'అడిగిన అంశం'} పై వివరాలు లేవు). ${primaryMatch.doc.publisher} లోని సంబంధిత పత్రం ప్రకారం: ${primaryMatch.chunk.text.substring(0, 140)}...`;
+        shortAnswer = `ఈ ప్రశ్నకు పూర్తి సమాధానం ఇవ్వడానికి మా ఆమోదిత లైబ్రరీలో పరిమిత ఆధారం మాత్రమే ఉంది (${missingGapText || 'అడిగిన అంశం'} పై వివరాలు లేవు). జాగ్రత్తగా గమనించాల్సిన సమీప పత్రం (${primaryMatch.doc.publisher}): ${primaryMatch.chunk.text.substring(0, 120)}...`;
         detailedExplanation = `గమనిక: మా పత్రాలు మీ పూర్తి ప్రశ్నను కవర్ చేయవు. సమీపంలో ఉన్న ధృవీకరించిన సారాంశం (${primaryMatch.doc.title}) మాత్రమే క్రింద ఇవ్వబడింది:\n\n${primaryMatch.chunk.text}`;
         questionsForDoctor = [
           'నా నిర్దిష్ట ప్రశ్నకు అధికారిక వైద్య మార్గదర్శకాలు ఏమిటి?',
           'ఈ అంశంపై నేను ఎలాంటి జాగ్రత్తలు తీసుకోవాలి?'
         ];
       } else {
-        shortAnswer = `I don't have enough approved evidence to answer this completely — our reviewed library does not cover ${missingGapText || 'all aspects of your question'}. The closest verified reference in ${primaryMatch.doc.publisher} (${primaryMatch.chunk.section}) states only: "${primaryMatch.chunk.text.substring(0, 150)}..."`;
+        shortAnswer = `I don't have enough approved evidence to answer this completely — our reviewed library has limited coverage and does not address ${missingGapText || 'all aspects of your question'}. The closest verified reference in ${primaryMatch.doc.publisher} (${primaryMatch.chunk.section}) notes only: "${primaryMatch.chunk.text.substring(0, 140)}..."`;
         detailedExplanation = `Verified Excerpt Only (Incomplete Match): Our reviewed documents do not address ${missingGapText || 'your specific claim'}. Below is the exact approved passage from ${primaryMatch.doc.title}:\n\n"${primaryMatch.chunk.text}"`;
         questionsForDoctor = [
           'What official clinical guidelines address the parts not covered here?',
@@ -1208,20 +1237,28 @@ Return valid JSON only.`;
       }
     } else if (isTe) {
       const teluguPassage = TELUGU_APPROVED_PASSAGES.find((p) => p.topic === primaryMatch.chunk.topic);
+      const moderateNoteTe =
+        evidenceStrength === 'Moderate'
+          ? ' (గమనిక: ఇది సాధారణ మార్గదర్శకం మాత్రమే; పూర్తి వ్యక్తిగత సమాచారం కాదు.)'
+          : '';
       if (teluguPassage) {
-        shortAnswer = teluguPassage.short_answer;
+        shortAnswer = teluguPassage.short_answer + moderateNoteTe;
         detailedExplanation = teluguPassage.detail;
         questionsForDoctor = [
           'ఈ మార్గదర్శకాలను నా ప్రస్తుత ఆరోగ్య నివేదికలతో సరిపోల్చవచ్చా?',
           'నాకు ఏదైనా ప్రత్యేక జాగ్రత్తలు లేదా పరీక్షలు అవసరమా?',
         ];
       } else {
-        shortAnswer = `సమీక్షించిన మూలం (${primaryMatch.doc.publisher}): ${primaryMatch.chunk.text.substring(0, 160)}...`;
+        shortAnswer = `సమీక్షించిన మూలం (${primaryMatch.doc.publisher}): ${primaryMatch.chunk.text.substring(0, 160)}...${moderateNoteTe}`;
         detailedExplanation = primaryMatch.chunk.text;
         questionsForDoctor = ['ఈ అధికారిక మార్గదర్శకాల ప్రకారం నా తదుపరి పరీక్షలు ఎప్పుడు చేయించుకోవాలి?'];
       }
     } else {
-      shortAnswer = `According to ${primaryMatch.doc.publisher} (${primaryMatch.doc.title}): ${primaryMatch.chunk.text.substring(0, 210)}`;
+      const moderateNoteEn =
+        evidenceStrength === 'Moderate'
+          ? ' (Note: Approved sources provide general guidance only and do not cover every individual nuance.)'
+          : '';
+      shortAnswer = `According to ${primaryMatch.doc.publisher} (${primaryMatch.doc.title}): ${primaryMatch.chunk.text.substring(0, 210)}${moderateNoteEn}`;
       detailedExplanation = primaryMatch.chunk.text;
       questionsForDoctor = [
         'How does this official guidance apply to my individual health history?',
