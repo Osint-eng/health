@@ -26,6 +26,7 @@ dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const ROOT_DIR = path.basename(__dirname) === 'dist' ? path.resolve(__dirname, '..') : __dirname;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -33,7 +34,7 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json({ limit: '10mb' }));
 
 // Persistent Disk Storage Path
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = path.join(ROOT_DIR, 'data');
 const STORE_PATH = path.join(DATA_DIR, 'arogya_store.json');
 
 // Production Rate Limiter (Token Bucket / Sliding Window per IP)
@@ -2073,7 +2074,7 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.resolve(__dirname, 'dist');
+    const distPath = path.resolve(ROOT_DIR, 'dist');
     app.use(express.static(distPath));
     app.get('*', (_req: Request, res: Response) => {
       res.sendFile(path.resolve(distPath, 'index.html'));
