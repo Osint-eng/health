@@ -1,7 +1,15 @@
 # Arogya Voice — Source-Grounded Multilingual Healthcare & Scheme Navigator
 
-> **Problem Statement:**  
-> Arogya Voice is an open, source-grounded multilingual (English & Telugu) voice health navigator that delivers zero-hallucination operational guidance from WHO and national health scheme documents while strictly abstaining from medical prescribing or diagnosis and routing emergencies to verified helplines (108/112).
+> *"Most health AIs try to answer. Arogya Voice answers only when approved evidence is strong enough."*
+
+**Problem Statement:**  
+Arogya Voice is an evidence-disciplined, multilingual (English & Telugu) voice health navigator that delivers source-grounded guidance strictly from verified WHO, PAHO, and National Health Authority documents—proudly refusing unsupported or weak claims, abstaining from medical prescribing or diagnosis, and routing emergencies to verified helplines (`108`/`112`) with the user's **Emergency Medical ID**.
+
+### 🎯 Four Core Pillars
+1. **Evidence Discipline (Refusal as a Strength):** Every query passes a pre-answer Evidence Gate (`Strong`, `Moderate`, `Weak`, `None`) backed by cosine similarity + concept coverage. Weak evidence triggers cautious refusal-first hedging; missing evidence triggers an immediate hard refusal with zero hallucination.
+2. **Clinical Abstention:** Strictly refuses personal diagnoses, drug dosages, and prescriptions (`needs_professional`), providing doctor consultation questions instead.
+3. **Emergency Routing:** Immediately detects red-flag symptoms (chest pain, stroke signs, breathing distress, severe bleeding) and routes users to **108 / 112** emergency services.
+4. **Personal Emergency Medical ID:** Stores Blood Group, Allergies, Chronic Conditions, Emergency Contact, and ABHA ID locally and surfaces them automatically on the Urgent Help page and inline during emergency triage.
 
 ---
 
@@ -87,13 +95,21 @@ Arogya Voice indexes only peer-reviewed, official government and multilateral he
 - **Question:** *"What documents are required to apply for Ayushman Bharat PM-JAY and generate the Golden Card?"*
 - **Arogya Voice Response:** Cites `pmjay-official-scheme-2024` (Clause 3.2, Page 16). Lists mandatory documents: Aadhaar card or government photo ID, Ration Card or State Family ID, and active mobile number for OTP verification. Notes that card generation at CSCs is free.
 
-### 5. Strict Medical Abstention (Clinical Safety Boundary)
-- **Question:** *"Can I take 1000mg Paracetamol every 2 hours without a doctor prescription?"*
-- **Arogya Voice Response:** **Strict Abstention.** *"Arogya Voice cannot prescribe medications, calculate dosages, or approve self-medication schedules. Exceeding recommended paracetamol intervals carries severe risks of hepatotoxicity. Please consult a licensed medical clinician or pharmacist immediately."*
+### 5. Featured Refusal Guardrail — Missing Evidence (`Evidence Strength: None`)
+- **Question:** *"What are the symptoms and antibiotics for typhoid fever?"*
+- **Arogya Voice Response:** **Proud Hard Refusal (`no_approved_source_found`, 0 citations).** Refuses cleanly rather than guessing or blending unrelated fever documents: *"I don't have enough approved evidence in our reviewed library to answer this question (no reviewed sources cover: antibiotics, typhoid). To stay safe and accurate, I will not guess."*
 
-### 6. Emergency Helpline Triage (Urgent Help)
-- **Question:** *"Someone collapsed with sudden chest crushing pain and left arm numbness. What should I do?"*
-- **Arogya Voice Response:** **Immediate Emergency Red Flag.** Dispatches prominent callout cards for **108 (National Emergency Ambulance)** and **112 (Unified Emergency Response)** with FAST stroke/cardiac guidelines.
+### 6. Caution Mode — Unproven Remedy (`Evidence Strength: Weak`)
+- **Question:** *"Can papaya leaf juice cure severe dengue fever?"*
+- **Arogya Voice Response:** **Cautious Refusal-First Mode (`needs_clarification`).** Clearly states approved WHO documents do NOT cover papaya leaf juice, avoids validating the cure claim, and surfaces only the verified WHO Dengue note with explicit limitations.
+
+### 7. Strict Clinical Abstention (Prescription & Dosage Boundary)
+- **Question:** *"What is the dosage of Metformin for my 12-year-old cousin?"*
+- **Arogya Voice Response:** **Strict Clinical Abstention (`needs_professional`).** Refuses to calculate drug dosages or prescribe, explains why clinical lab/history review is required, and provides specific questions to ask a licensed doctor.
+
+### 8. Emergency Routing + Personal Emergency Medical ID
+- **Question:** *"Someone collapsed with sudden chest crushing pain and difficulty breathing. What should I do?"*
+- **Arogya Voice Response:** **Immediate Emergency Dispatch (`urgent_help`).** Dispatches **108 (Ambulance)** and **112 (Emergency)** dialers alongside the user's **Emergency Medical ID** (Blood Group, Known Allergies, Chronic Conditions, Family Emergency Contact, ABHA ID).
 
 ---
 

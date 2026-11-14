@@ -93,20 +93,26 @@ export const HomePage: React.FC<HomePageProps> = ({
       <div className="text-center space-y-3">
         <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-teal-100/70 text-teal-800 text-xs font-semibold">
           <Sparkles className="w-3.5 h-3.5 text-teal-700" />
-          <span>{isTe ? 'అధికారిక ఆధారాలతో కూడిన సమాచార వేదిక' : 'Source-Grounded Healthcare Assistant'}</span>
+          <span>{isTe ? 'ఆధారాల నిబద్ధత కలిగిన ఆరోగ్య వేదిక' : 'Evidence-Disciplined Healthcare AI'}</span>
         </div>
 
         <h1 className="text-3xl sm:text-4xl md:text-5xl font-extrabold text-slate-900 tracking-tight leading-tight">
           {isTe ? (
-            <span className="font-telugu">మీ భాషలో ఆరోగ్య సమాచారం అడగండి.</span>
+            <span className="font-telugu">ఆధారం బలంగా ఉంటేనే సమాధానం.</span>
           ) : (
             <span>
-              Ask health questions in <span className="text-teal-700">your language.</span>
+              Answers only when <span className="text-teal-700">evidence is strong enough.</span>
             </span>
           )}
         </h1>
 
-        <p className="max-w-2xl mx-auto text-sm sm:text-base text-slate-600 font-medium">
+        <p className="max-w-2xl mx-auto text-sm sm:text-base text-slate-700 font-semibold">
+          {isTe
+            ? 'చాలా ఆరోగ్య AIలు సమాధానం చెప్పడానికి ప్రయత్నిస్తాయి. ఆరోగ్య వాయిస్ మాత్రం ధృవీకరించబడిన ఆధారాలు ఉంటేనే సమాధానం ఇస్తుంది — లేకపోతే సురక్షితంగా నిరాకరిస్తుంది.'
+            : 'Most health AIs try to answer. Arogya Voice answers only when approved evidence is strong enough.'}
+        </p>
+
+        <p className="max-w-2xl mx-auto text-xs sm:text-sm text-slate-500 font-medium">
           {t.scopeStatement}
         </p>
       </div>
@@ -140,60 +146,81 @@ export const HomePage: React.FC<HomePageProps> = ({
             </button>
           </div>
 
-          <div className="pt-3 flex items-center justify-center space-x-4 text-xs text-slate-500">
+          <div className="pt-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-slate-500">
             <span className="flex items-center">
               <ShieldCheck className="w-3.5 h-3.5 text-teal-600 mr-1" />
-              {isTe ? 'WHO & ప్రభుత్వ మార్గదర్శకాలు' : 'WHO & Official Guidelines'}
+              {isTe ? 'ఆధారాల బలం గేట్' : 'Strict Evidence Gate'}
             </span>
             <span>•</span>
-            <span>{isTe ? 'ప్రతి సమాధానానికి ఆధారం' : 'Exact Source Citations'}</span>
+            <span>{isTe ? 'సురక్షిత నిరాకరణ' : 'Refuses Weak Claims'}</span>
+            <span>•</span>
+            <span>{isTe ? '108/112 అత్యవసర రూటింగ్' : '108/112 Emergency Routing'}</span>
           </div>
         </div>
       </div>
 
-      {/* Three Step Workflow Explanation */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="p-4 bg-white rounded-2xl border border-slate-200/80 shadow-xs flex items-start space-x-3">
-          <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center font-bold text-sm shrink-0">
-            1
+      {/* Four Core Pillars */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="p-4 bg-white rounded-2xl border border-teal-200/80 shadow-xs space-y-1.5">
+          <div className="text-[10px] font-extrabold uppercase tracking-wider text-teal-700">
+            01 · {isTe ? 'ఆధారాల నిబద్ధత' : 'Evidence Discipline'}
           </div>
-          <div>
-            <h4 className="font-bold text-slate-900 text-sm">
-              {isTe ? 'మాట్లాడండి (Speak)' : 'Speak Naturally'}
-            </h4>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {isTe ? 'ఇంగ్లీష్ లేదా తెలుగులో మీ ప్రశ్నను అడగండి.' : 'Ask your health question in English or Telugu via microphone.'}
-            </p>
-          </div>
+          <h4 className="font-bold text-slate-900 text-sm">
+            {isTe ? 'బలం లేకుంటే నిరాకరణ' : 'Refuses Without Evidence'}
+          </h4>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            {isTe
+              ? 'Strong, Moderate, Weak, None ఆధారాల స్థాయిని బట్టి మాత్రమే సమాధానం.'
+              : 'Calibrates every reply across Strong, Moderate, Weak, and None — hedging or refusing instead of guessing.'}
+          </p>
         </div>
 
-        <div className="p-4 bg-white rounded-2xl border border-slate-200/80 shadow-xs flex items-start space-x-3">
-          <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center font-bold text-sm shrink-0">
-            2
+        <div className="p-4 bg-white rounded-2xl border border-amber-200/80 shadow-xs space-y-1.5">
+          <div className="text-[10px] font-extrabold uppercase tracking-wider text-amber-700">
+            02 · {isTe ? 'క్లినికల్ సంయమనం' : 'Clinical Abstention'}
           </div>
-          <div>
-            <h4 className="font-bold text-slate-900 text-sm">
-              {isTe ? 'సమీక్షించండి (Review)' : 'Review Transcript'}
-            </h4>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {isTe ? 'టైప్ అయిన మీ మాటను సరిచూసుకోండి.' : 'Verify or edit your transcribed question before searching guidelines.'}
-            </p>
-          </div>
+          <h4 className="font-bold text-slate-900 text-sm">
+            {isTe ? 'డోసేజ్ & రోగ నిర్ధారణ నిషేధం' : 'No Diagnosis or Dosages'}
+          </h4>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            {isTe
+              ? 'వ్యక్తిగత మందుల మోతాదులు లేదా నిర్ధారణ అడిగితే వైద్యుడిని సూచిస్తుంది.'
+              : 'Strictly blocks prescribing and personal dosing requests and generates questions for your doctor.'}
+          </p>
         </div>
 
-        <div className="p-4 bg-white rounded-2xl border border-slate-200/80 shadow-xs flex items-start space-x-3">
-          <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center font-bold text-sm shrink-0">
-            3
+        <div className="p-4 bg-white rounded-2xl border border-red-200/80 shadow-xs space-y-1.5">
+          <div className="text-[10px] font-extrabold uppercase tracking-wider text-red-700">
+            03 · {isTe ? 'అత్యవసర రూటింగ్' : 'Emergency Routing'}
           </div>
-          <div>
-            <h4 className="font-bold text-slate-900 text-sm">
-              {isTe ? 'వినండి & ఆధారాలు చూడండి' : 'Listen with Sources'}
-            </h4>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {isTe ? 'ఖచ్చితమైన అధికారిక కొటేషన్లతో వినండి.' : 'Hear grounded answers with exact document page citations.'}
-            </p>
-          </div>
+          <h4 className="font-bold text-slate-900 text-sm">
+            {isTe ? 'తక్షణ 108 / 112 సహాయం' : 'Instant 108 / 112 Triage'}
+          </h4>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            {isTe
+              ? 'ఛాతీ నొప్పి, శ్వాస ఇబ్బంది వంటి లక్షణాలకు తక్షణ ఎమర్జెన్సీ నంబర్లు.'
+              : 'Detects acute red flags like chest pain, stroke, or breathlessness and dispatches direct helpline dialers.'}
+          </p>
         </div>
+
+        <button
+          type="button"
+          onClick={onOpenUrgent}
+          className="p-4 bg-rose-50/50 hover:bg-rose-50 rounded-2xl border border-rose-200/90 shadow-xs space-y-1.5 text-left transition-colors group"
+        >
+          <div className="text-[10px] font-extrabold uppercase tracking-wider text-rose-700 flex items-center justify-between">
+            <span>04 · {isTe ? 'వ్యక్తిగత వైద్య ఐడి' : 'Emergency Medical ID'}</span>
+            <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+          </div>
+          <h4 className="font-bold text-slate-900 text-sm">
+            {isTe ? 'రక్త గ్రూపు & అలెర్జీ కార్డు' : 'Personal First-Responder ID'}
+          </h4>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            {isTe
+              ? 'రక్త గ్రూపు, అలెర్జీలు, అత్యవసర నంబర్ & ABHA ఐడి అత్యవసరంలో వెంటనే కనిపిస్తాయి.'
+              : 'Surfaces your blood group, allergies, chronic conditions & family contact directly during emergencies.'}
+          </p>
+        </button>
       </div>
 
       {/* Reviewed Official Topics */}

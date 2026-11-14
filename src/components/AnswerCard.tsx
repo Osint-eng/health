@@ -159,9 +159,9 @@ export const AnswerCard: React.FC<AnswerCardProps> = ({
       {/* Weak / None Evidence Discipline Banner */}
       {(message.evidence_strength === 'Weak' || message.evidence_strength === 'None') && !message.is_urgent && (
         <div
-          className={`mb-4 p-3 rounded-xl border text-xs flex items-start space-x-2 ${
+          className={`mb-4 p-3.5 rounded-xl border text-xs flex items-start space-x-2.5 ${
             message.evidence_strength === 'None'
-              ? 'bg-rose-50/90 border-rose-200 text-rose-900'
+              ? 'bg-rose-50/90 border-rose-200 text-rose-950'
               : 'bg-amber-50/90 border-amber-300 text-amber-950'
           }`}
         >
@@ -170,15 +170,24 @@ export const AnswerCard: React.FC<AnswerCardProps> = ({
             <span className="font-bold block">
               {message.evidence_strength === 'None'
                 ? isTe
-                  ? 'ఆధారాల ధృవీకరణ తిరస్కరణ — సమాధానం నిలిపివేయబడింది'
-                  : 'Evidence Gate: Refused to Answer Without Approved Sources'
+                  ? 'రక్షణ నిరాకరణ సక్రియం — ఆధారం లేకుండా ఊహించి సమాధానం ఇవ్వదు'
+                  : 'Safety Refusal Active — Refusing to Guess Without Approved Evidence'
                 : isTe
                 ? 'తక్కువ ఆధారాల హెచ్చరిక — జాగ్రత్తగా పరిమిత సమాచారం మాత్రమే'
-                : 'Evidence Gate: Weak / Limited Evidence — Cautious Response Mode Active'}
+                : 'Caution Gate Active — Limited Approved Evidence (No Extrapolation)'}
+            </span>
+            <span className="text-[11px] opacity-90 block mt-0.5">
+              {message.evidence_strength === 'None'
+                ? isTe
+                  ? 'ఆమోదిత WHO / PAHO / NHA పత్రాలలో తగినంత ఆధారం లేనప్పుడు ఆరోగ్య వాయిస్ సమాధానాన్ని నిలిపివేస్తుంది.'
+                  : 'Arogya Voice answers only when approved evidence is strong enough, protecting against unverified medical claims.'
+                : isTe
+                ? 'ప్రశ్నలోని అన్ని అంశాలకు బలమైన ఆధారం లేదు; అందుబాటులో ఉన్న సురక్షిత పరిమితి మాత్రమే చూపబడింది.'
+                : 'Approved sources do not support the full inquiry; only cautious, bounded guidance is shown.'}
             </span>
             {message.missing_topics && message.missing_topics.length > 0 && (
-              <span className="text-[11px] opacity-90 block mt-0.5">
-                {isTe ? 'ఆమోదిత పత్రాలలో లేని అంశాలు: ' : 'Not found in approved sources: '}
+              <span className="text-[11px] opacity-90 block mt-1">
+                {isTe ? 'ఆమోదిత పత్రాలలో లేని అంశాలు: ' : 'Not covered in approved sources: '}
                 <strong>{message.missing_topics.slice(0, 6).join(', ')}</strong>
               </span>
             )}

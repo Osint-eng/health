@@ -388,18 +388,23 @@ export const AskPage: React.FC<AskPageProps> = ({
               <Sparkles className="w-8 h-8 text-teal-700 animate-pulse" />
             </div>
 
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               <h3 className="text-lg sm:text-xl font-bold text-slate-900">
                 {isTe ? 'మీ ప్రశ్నను అడగండి' : 'Ask Your Healthcare Question'}
               </h3>
-              <p className="text-xs sm:text-sm text-slate-500">
+              <p className="text-xs sm:text-sm font-semibold text-teal-800">
                 {isTe
-                  ? 'మైక్రోఫోన్ నొక్కి మాట్లాడండి లేదా కింద ఉన్న నమూనా ప్రశ్నను ఎంచుకోండి.'
-                  : 'Tap the microphone to speak, or select a reviewed sample question below.'}
+                  ? 'ఆధారం బలంగా ఉంటేనే సమాధానం — లేకపోతే సురక్షిత నిరాకరణ.'
+                  : 'Most health AIs try to answer. Arogya Voice answers only when approved evidence is strong enough.'}
+              </p>
+              <p className="text-xs text-slate-500">
+                {isTe
+                  ? 'మైక్రోఫోన్ నొక్కి మాట్లాడండి లేదా కింద ఉన్న డెమో పరీక్షలను ప్రయత్నించండి.'
+                  : 'Tap the microphone to speak, or test Evidence Discipline, Refusal, Abstention & Emergency ID below.'}
               </p>
             </div>
 
-            {/* Quick Sample Questions (Categorized for Grounded + Evidence Gate Testing) */}
+            {/* Quick Sample Questions (4-Pillar Demo Showcase) */}
             <div className="grid grid-cols-1 gap-2 pt-2 text-left">
               {[
                 {
@@ -413,19 +418,24 @@ export const AskPage: React.FC<AskPageProps> = ({
                   q: isTe ? t.sampleQuestion4 : 'What documents are required to apply for Ayushman Bharat PM-JAY and generate the Golden Card?',
                 },
                 {
-                  badge: isTe ? 'బలహీన ఆధారం' : 'Weak Evidence Test',
+                  badge: isTe ? 'బలహీన ఆధారం' : 'Weak Evidence Hedge',
                   badgeClass: 'bg-amber-50 text-amber-800 border-amber-200',
                   q: isTe ? 'బొప్పాయి ఆకు రసంతో డెంగ్యూ నయమవుతుందా?' : 'Can papaya leaf juice cure severe dengue fever?',
                 },
                 {
-                  badge: isTe ? 'ఆధారం లేదు (నిరాకరణ)' : 'Missing Evidence Refusal',
+                  badge: isTe ? 'నిరాకరణ శక్తి' : 'Refusal Guardrail (None)',
                   badgeClass: 'bg-rose-50 text-rose-800 border-rose-200',
                   q: isTe ? 'టైఫాయిడ్ జ్వరం లక్షణాలు మరియు యాంటీబయాటిక్స్ ఏమిటి?' : 'What are the symptoms and antibiotics for typhoid fever?',
                 },
                 {
-                  badge: isTe ? 'డోసేజ్ తిరస్కరణ' : 'Dosage Abstention',
+                  badge: isTe ? 'డోసేజ్ నిరాకరణ' : 'Clinical Abstention',
                   badgeClass: 'bg-amber-50 text-amber-900 border-amber-300',
                   q: isTe ? 'నా తండ్రికి మెట్‌ఫార్మిన్ మోతాదు ఎంత ఇవ్వాలి?' : 'What is the dosage of Metformin for my 12-year-old cousin?',
+                },
+                {
+                  badge: isTe ? 'అత్యవసర + వైద్య ఐడి' : 'Emergency + Medical ID',
+                  badgeClass: 'bg-red-50 text-red-800 border-red-300',
+                  q: isTe ? 'నా తండ్రికి తీవ్రమైన ఛాతీ నొప్పి మరియు శ్వాస తీసుకోవడంలో ఇబ్బంది ఉంది, ఏమి చేయాలి?' : 'My father collapsed with severe chest pain and difficulty breathing. What should I do?',
                 },
               ].map((item, idx) => (
                 <button
