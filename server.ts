@@ -416,22 +416,22 @@ function retrieveApprovedChunks(
       const chunkVec = getChunkVector(chunk);
       const cosSim = cosineSimilarity(queryVec, chunkVec);
 
-      // Semantic threshold for relevant matches (0.23 minimum vector similarity to prevent out-of-domain hallucinations)
-      if (cosSim >= 0.23) {
-        // Boost score when exact domain keywords or titles appear
-        let keywordBoost = 0;
-        const lowerQ = query.toLowerCase();
-        for (const kw of chunk.keywords) {
-          if (lowerQ.includes(kw.toLowerCase())) {
-            keywordBoost += 0.04;
-          }
-        }
-        if (chunk.title.toLowerCase().split(/\s+/).some(t => lowerQ.includes(t) && t.length > 3)) {
+      // Compute exact domain keyword / title boost before cutoff so short entity queries (e.g., "papaya leaf dengue") aren't dropped prematurely
+      let keywordBoost = 0;
+      const lowerQ = query.toLowerCase();
+      for (const kw of chunk.keywords) {
+        if (lowerQ.includes(kw.toLowerCase())) {
           keywordBoost += 0.04;
         }
+      }
+      if (chunk.title.toLowerCase().split(/\s+/).some((t) => lowerQ.includes(t) && t.length > 3)) {
+        keywordBoost += 0.04;
+      }
 
-        const calibratedScore = Math.min(0.99, cosSim + keywordBoost);
+      const calibratedScore = Math.min(0.99, cosSim + keywordBoost);
 
+      // Semantic threshold for relevant matches
+      if (cosSim >= 0.23 || (keywordBoost >= 0.08 && cosSim >= 0.16 && calibratedScore >= 0.26)) {
         scoredChunks.push({
           chunk,
           doc,
@@ -480,14 +480,37 @@ const OUT_OF_DOMAIN_ENTITIES = new Set([
   'weather', 'car'
 ]);
 
+const UNVERIFIED_REMEDY_ENTITIES = new Set([
+  'papaya', 'herbal', 'ayurveda', 'ayurvedic', 'homeopathy', 'homeopathic',
+  'vitamin', 'vitamins', 'supplement', 'supplements', 'garlic', 'turmeric',
+  'ginger', 'coconut', 'honey', 'neem', 'tulsi'
+]);
+
 const SPECIFIC_CLINICAL_ENTITIES = new Set([
   ...OUT_OF_DOMAIN_ENTITIES,
-  'papaya', 'herbal', 'ayurveda', 'ayurvedic', 'homeopathy', 'homeopathic',
+  ...UNVERIFIED_REMEDY_ENTITIES,
   'antibiotic', 'antibiotics', 'amoxicillin', 'azithromycin', 'ibuprofen',
-  'aspirin', 'paracetamol', 'acetaminophen', 'dolo', 'vitamin', 'vitamins',
-  'supplement', 'supplements', 'garlic', 'turmeric', 'ginger', 'coconut',
-  'honey', 'neem', 'tulsi'
+  'aspirin', 'paracetamol', 'acetaminophen', 'dolo'
 ]);
+
+function extractConciseSentences(text: string, maxChars = 190): string {
+  const cleaned = text.replace(/\s+/g, ' ').trim();
+  if (cleaned.length <= maxChars) return cleaned;
+  const sentences = cleaned.match(/[^.!?]+[.!?]+/g) || [cleaned];
+  let out = '';
+  for (const s of sentences) {
+    const trimmed = s.trim();
+    if (!out) {
+      out = trimmed.length <= maxChars ? trimmed : trimmed.slice(0, maxChars - 1).replace(/\s+\S*$/, '') + '…';
+      if (out.length >= maxChars * 0.65) break;
+    } else if (out.length + 1 + trimmed.length <= maxChars) {
+      out += ' ' + trimmed;
+    } else {
+      break;
+    }
+  }
+  return out;
+}
 
 interface EvidenceEvaluation {
   strength: EvidenceStrength;
@@ -538,6 +561,7 @@ function evaluateEvidenceQuality(query: string, matches: RetrievedMatch[]): Evid
   const missingTerms: string[] = [];
   const missingSpecificEntities: string[] = [];
   const missingOutOfDomainEntities: string[] = [];
+  const missingNonRemedySpecificEntities: string[] = [];
 
   for (const token of contentTokens) {
     const stem = token.length >= 5 ? token.slice(0, token.length - 1) : token;
@@ -551,6 +575,9 @@ function evaluateEvidenceQuality(query: string, matches: RetrievedMatch[]): Evid
       missingTerms.push(token);
       if (SPECIFIC_CLINICAL_ENTITIES.has(token)) {
         missingSpecificEntities.push(token);
+        if (!UNVERIFIED_REMEDY_ENTITIES.has(token)) {
+          missingNonRemedySpecificEntities.push(token);
+        }
       }
       if (OUT_OF_DOMAIN_ENTITIES.has(token)) {
         missingOutOfDomainEntities.push(token);
@@ -560,12 +587,20 @@ function evaluateEvidenceQuality(query: string, matches: RetrievedMatch[]): Evid
 
   const coverageRatio = contentTokens.length > 0 ? matchedTerms.length / contentTokens.length : 0;
 
-  // Hard Refusal ('None'): Out-of-domain disease/topic missing, very low vector match, or insufficient concept coverage
+  const isRemedyOnIndexedCondition =
+    missingOutOfDomainEntities.length === 0 &&
+    missingNonRemedySpecificEntities.length === 0 &&
+    missingSpecificEntities.some((t) => UNVERIFIED_REMEDY_ENTITIES.has(t)) &&
+    matchedTerms.length >= 1;
+
+  // Hard Refusal ('None'): Out-of-domain disease/topic missing, very low vector match, or zero core topic overlap
   if (
-    primaryScore < 0.36 ||
-    coverageRatio < 0.25 ||
+    (!isRemedyOnIndexedCondition && primaryScore < 0.36) ||
+    (isRemedyOnIndexedCondition && primaryScore < 0.26) ||
+    matchedTerms.length === 0 ||
+    coverageRatio < 0.24 ||
     missingOutOfDomainEntities.length > 0 ||
-    (missingSpecificEntities.length > 0 && coverageRatio < 0.42)
+    (missingNonRemedySpecificEntities.length > 0 && coverageRatio < 0.42)
   ) {
     return {
       strength: 'None',
@@ -967,11 +1002,13 @@ app.post('/api/conversations/:id/messages', async (req: Request, res: Response) 
   let evidenceStrength: EvidenceStrength = evaluation.strength;
   let evidenceStatus: EvidenceStatus = evaluation.status;
 
-  // For Weak evidence, only attach genuinely relevant partial excerpts (not noisy tail chunks)
+  // Strict citation filtering by Evidence Strength so Strong/Moderate answers never surface weak/unrelated tail sources
   const citationMatches =
-    evidenceStrength === 'Weak'
-      ? topMatches.filter((m, idx) => idx === 0 || m.similarity_score >= 0.34)
-      : topMatches;
+    evidenceStrength === 'Strong'
+      ? topMatches.filter((m, idx) => idx === 0 || m.similarity_score >= 0.55)
+      : evidenceStrength === 'Moderate'
+      ? topMatches.filter((m, idx) => idx === 0 || m.similarity_score >= 0.42)
+      : topMatches.slice(0, 1);
 
   const citations: Citation[] = citationMatches.map((m) => ({
     source_id: m.doc.id,
@@ -1069,11 +1106,11 @@ ${strengthDirective}
 
 REQUIRED JSON OUTPUT FORMAT:
 {
-  "short_answer": "Calm, practical direct answer (2-3 sentences). Must clearly state refusal/limited evidence if Weak/None, or clearly note scope limitations if Moderate.",
+  "short_answer": "Crisp, direct plain-language answer (1-2 short sentences, max 40 words). Do NOT repeat document titles or publisher names here. Must state refusal/limited evidence if Weak/None, or brief scope note if Moderate.",
   "evidence_strength": "Strong" | "Moderate" | "Weak" | "None",
-  "evidence_support_summary": "1-2 sentences stating strictly what the provided sources cover (if any).",
-  "limitations": "1-2 sentences stating clearly what the sources do NOT cover or cannot confirm.",
-  "consultation_recommendation": "Clear recommendation to consult a licensed healthcare professional when relevant.",
+  "evidence_support_summary": "1 concise sentence stating strictly what the provided sources cover (if any).",
+  "limitations": "1 concise sentence stating clearly what the sources do NOT cover or cannot confirm.",
+  "consultation_recommendation": "1 concise sentence recommending a qualified healthcare professional when relevant.",
   "detailed_explanation": "Careful explanation strictly inside the source excerpts, separating general educational information from personal medical advice.",
   "questions_for_doctor": ["Question 1 to ask a clinician", "Question 2 to ask a clinician"]
 }
@@ -1221,15 +1258,16 @@ Return valid JSON only.`;
   // Deterministic Source-Only Fallback if LLM unavailable, timed out, or blocked by GroundingGuard
   if (!shortAnswer) {
     if (evidenceStrength === 'Weak') {
+      const conciseExcerpt = extractConciseSentences(primaryMatch.chunk.text, 130);
       if (isTe) {
-        shortAnswer = `ఈ ప్రశ్నకు పూర్తి సమాధానం ఇవ్వడానికి మా ఆమోదిత లైబ్రరీలో పరిమిత ఆధారం మాత్రమే ఉంది (${missingGapText || 'అడిగిన అంశం'} పై వివరాలు లేవు). జాగ్రత్తగా గమనించాల్సిన సమీప పత్రం (${primaryMatch.doc.publisher}): ${primaryMatch.chunk.text.substring(0, 120)}...`;
+        shortAnswer = `పరిమిత ఆధారం మాత్రమే: మా సమీక్షించిన పత్రాలలో ${missingGapText || 'ఈ అంశం'} పై పూర్తి వివరాలు లేవు. సమీప సమాచారం: ${conciseExcerpt}`;
         detailedExplanation = `గమనిక: మా పత్రాలు మీ పూర్తి ప్రశ్నను కవర్ చేయవు. సమీపంలో ఉన్న ధృవీకరించిన సారాంశం (${primaryMatch.doc.title}) మాత్రమే క్రింద ఇవ్వబడింది:\n\n${primaryMatch.chunk.text}`;
         questionsForDoctor = [
           'నా నిర్దిష్ట ప్రశ్నకు అధికారిక వైద్య మార్గదర్శకాలు ఏమిటి?',
           'ఈ అంశంపై నేను ఎలాంటి జాగ్రత్తలు తీసుకోవాలి?'
         ];
       } else {
-        shortAnswer = `I don't have enough approved evidence to answer this completely — our reviewed library has limited coverage and does not address ${missingGapText || 'all aspects of your question'}. The closest verified reference in ${primaryMatch.doc.publisher} (${primaryMatch.chunk.section}) notes only: "${primaryMatch.chunk.text.substring(0, 140)}..."`;
+        shortAnswer = `Limited approved evidence: our reviewed sources do not cover ${missingGapText || 'all aspects of your question'}. Closest verified note: ${conciseExcerpt}`;
         detailedExplanation = `Verified Excerpt Only (Incomplete Match): Our reviewed documents do not address ${missingGapText || 'your specific claim'}. Below is the exact approved passage from ${primaryMatch.doc.title}:\n\n"${primaryMatch.chunk.text}"`;
         questionsForDoctor = [
           'What official clinical guidelines address the parts not covered here?',
@@ -1240,26 +1278,26 @@ Return valid JSON only.`;
       const teluguPassage = TELUGU_APPROVED_PASSAGES.find((p) => p.topic === primaryMatch.chunk.topic);
       const moderateNoteTe =
         evidenceStrength === 'Moderate'
-          ? ' (గమనిక: ఇది సాధారణ మార్గదర్శకం మాత్రమే; పూర్తి వ్యక్తిగత సమాచారం కాదు.)'
+          ? ' (గమనిక: ఇది సాధారణ మార్గదర్శకం మాత్రమే.)'
           : '';
       if (teluguPassage) {
-        shortAnswer = teluguPassage.short_answer + moderateNoteTe;
+        shortAnswer = extractConciseSentences(teluguPassage.short_answer, 180) + moderateNoteTe;
         detailedExplanation = teluguPassage.detail;
         questionsForDoctor = [
           'ఈ మార్గదర్శకాలను నా ప్రస్తుత ఆరోగ్య నివేదికలతో సరిపోల్చవచ్చా?',
           'నాకు ఏదైనా ప్రత్యేక జాగ్రత్తలు లేదా పరీక్షలు అవసరమా?',
         ];
       } else {
-        shortAnswer = `సమీక్షించిన మూలం (${primaryMatch.doc.publisher}): ${primaryMatch.chunk.text.substring(0, 160)}...${moderateNoteTe}`;
+        shortAnswer = `${extractConciseSentences(primaryMatch.chunk.text, 175)}${moderateNoteTe}`;
         detailedExplanation = primaryMatch.chunk.text;
         questionsForDoctor = ['ఈ అధికారిక మార్గదర్శకాల ప్రకారం నా తదుపరి పరీక్షలు ఎప్పుడు చేయించుకోవాలి?'];
       }
     } else {
       const moderateNoteEn =
         evidenceStrength === 'Moderate'
-          ? ' (Note: Approved sources provide general guidance only and do not cover every individual nuance.)'
+          ? ' (General guidance only — see limitations below.)'
           : '';
-      shortAnswer = `According to ${primaryMatch.doc.publisher} (${primaryMatch.doc.title}): ${primaryMatch.chunk.text.substring(0, 210)}${moderateNoteEn}`;
+      shortAnswer = `${extractConciseSentences(primaryMatch.chunk.text, 185)}${moderateNoteEn}`;
       detailedExplanation = primaryMatch.chunk.text;
       questionsForDoctor = [
         'How does this official guidance apply to my individual health history?',
