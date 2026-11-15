@@ -33,6 +33,7 @@ interface AskPageProps {
   userProfile?: UserProfile;
   onLanguageChange: (lang: Language) => void;
   onNewConversation: () => void;
+  onOpenAuth?: () => void;
   onUpdateConversation: (conv: Conversation) => void;
   initialQuery?: string;
   autoRecord?: boolean;
@@ -56,6 +57,7 @@ export const AskPage: React.FC<AskPageProps> = ({
   userProfile,
   onLanguageChange,
   onNewConversation,
+  onOpenAuth,
   onUpdateConversation,
   initialQuery = '',
   autoRecord = false,
@@ -383,9 +385,9 @@ export const AskPage: React.FC<AskPageProps> = ({
 
         {messages.length === 0 ? (
           /* Empty State Welcome Guidance */
-          <div className="py-8 sm:py-12 text-center space-y-4 max-w-lg mx-auto">
-            <div className="w-16 h-16 rounded-3xl bg-teal-50 border border-teal-200/80 flex items-center justify-center text-teal-800 mx-auto shadow-xs">
-              <Sparkles className="w-8 h-8 text-teal-700 animate-pulse" />
+          <div className="py-6 sm:py-8 text-center space-y-4 max-w-2xl mx-auto">
+            <div className="w-12 h-12 rounded-2xl bg-teal-50 border border-teal-200/80 flex items-center justify-center text-teal-800 mx-auto shadow-2xs">
+              <Sparkles className="w-6 h-6 text-teal-700" />
             </div>
 
             <div className="space-y-1.5">
@@ -400,12 +402,12 @@ export const AskPage: React.FC<AskPageProps> = ({
               <p className="text-xs text-slate-500">
                 {isTe
                   ? 'మైక్రోఫోన్ నొక్కి మాట్లాడండి లేదా కింద ఉన్న డెమో పరీక్షలను ప్రయత్నించండి.'
-                  : 'Tap the microphone to speak, or test Evidence Discipline, Refusal, Abstention & Emergency ID below.'}
+                  : 'Tap the microphone to speak, or select a scenario below to test Strong, Weak, Refusal, Abstention, and Emergency ID.'}
               </p>
             </div>
 
             {/* Quick Sample Questions (4-Pillar Demo Showcase) */}
-            <div className="grid grid-cols-1 gap-2 pt-2 text-left">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2 text-left">
               {[
                 {
                   badge: isTe ? 'బలమైన ఆధారం' : 'Strong Evidence',
@@ -442,15 +444,17 @@ export const AskPage: React.FC<AskPageProps> = ({
                   key={idx}
                   type="button"
                   onClick={() => handleSendQuestion(item.q)}
-                  className="p-3 bg-white hover:bg-teal-50/70 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 hover:text-teal-900 transition-all text-left flex items-center justify-between group shadow-2xs gap-2"
+                  className="p-3 bg-white hover:bg-teal-50/60 border border-slate-200 hover:border-teal-300 rounded-xl text-xs text-slate-800 hover:text-teal-900 transition-all text-left flex flex-col justify-between gap-2 group shadow-2xs"
                 >
-                  <div className="flex items-center gap-2 min-w-0">
+                  <div className="flex items-center justify-between w-full gap-2">
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0 ${item.badgeClass}`}>
                       {item.badge}
                     </span>
-                    <span className={`truncate ${isTe ? 'font-telugu' : ''}`}>{item.q}</span>
+                    <Send className="w-3 h-3 text-slate-300 group-hover:text-teal-700 shrink-0" />
                   </div>
-                  <Send className="w-3 h-3 text-slate-300 group-hover:text-teal-700 shrink-0" />
+                  <span className={`text-xs font-medium leading-snug line-clamp-2 ${isTe ? 'font-telugu' : ''}`}>
+                    {item.q}
+                  </span>
                 </button>
               ))}
             </div>
@@ -484,6 +488,7 @@ export const AskPage: React.FC<AskPageProps> = ({
                   userProfile={userProfile}
                   onViewSource={(cite) => setActiveCitation(cite)}
                   onReportIssue={(m) => setReportingMessage(m)}
+                  onOpenAuth={onOpenAuth}
                 />
               )}
             </div>
@@ -492,7 +497,7 @@ export const AskPage: React.FC<AskPageProps> = ({
 
         {/* State Machine Status Indicator */}
         {assistantState !== 'idle' && assistantState !== 'error' && assistantState !== 'review_transcript' && (
-          <div className="p-4 bg-teal-50 border border-teal-200 rounded-2xl flex items-center space-x-3 text-xs sm:text-sm text-teal-900 font-semibold animate-pulse">
+          <div className="p-4 bg-teal-50 border border-teal-200 rounded-2xl flex items-center space-x-3 text-xs sm:text-sm text-teal-900 font-semibold">
             <Loader2 className="w-5 h-5 text-teal-700 animate-spin shrink-0" />
             <div>
               {assistantState === 'requesting_mic' && (isTe ? 'మైక్రోఫోన్ అనుమతి తీసుకుంటోంది...' : 'Requesting microphone access...')}

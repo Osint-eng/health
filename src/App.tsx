@@ -47,14 +47,8 @@ export default function App() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
 
-  // Initialize app state
+  // Initialize app state without blocking Guest entry
   useEffect(() => {
-    // Check if onboarding was completed
-    const onboarded = localStorage.getItem('arogya_onboarded_v1');
-    if (!onboarded) {
-      setShowOnboarding(true);
-    }
-
     loadInitialData();
   }, []);
 
@@ -216,6 +210,7 @@ export default function App() {
                 userProfile={currentUser}
                 onLanguageChange={handleLanguageChange}
                 onNewConversation={() => handleNewConversation()}
+                onOpenAuth={() => setShowAuthModal(true)}
                 onUpdateConversation={(updated) => {
                   setCurrentConversation(updated);
                   setConversations((prev) => {

@@ -157,13 +157,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
           <h3 className="text-lg sm:text-xl font-extrabold text-slate-900 tracking-tight">
             {isTe
-              ? 'వినియోగదారు ప్రొఫైల్ & అత్యవసర వైద్య ఐడి'
-              : 'User Profile & Emergency Medical ID'}
+              ? 'ఐచ్ఛిక ప్రొఫైల్ & అత్యవసర వైద్య ఐడి'
+              : 'Optional Profile & Emergency Medical ID'}
           </h3>
           <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
             {isTe
-              ? 'డెమో పాత్రలను మార్చండి లేదా మీ వ్యక్తిగత అత్యవసర వైద్య ఐడిని సేవ్ చేయండి.'
-              : 'Switch demo personas or sign in locally with your Emergency Medical ID for instant urgent-care display.'}
+              ? 'అతిథిగా కొనసాగండి లేదా డెమో పాత్రలు & అత్యవసర వైద్య ఐడిని జోడించండి.'
+              : 'Guest access works with zero login. Optionally switch roles or save an Emergency Medical ID on this device.'}
           </p>
         </div>
 
@@ -207,8 +207,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <div className="space-y-3 mb-6">
               <div className="text-xs font-bold uppercase tracking-wider text-slate-400 px-1">
                 {isTe
-                  ? 'నమూనా వినియోగదారు పాత్రలు (Demo Personas):'
-                  : 'Pre-configured Demo Personas:'}
+                  ? 'అతిథి లేదా డెమో పాత్రలు (Guest & Demo Personas):'
+                  : 'Guest Mode & Optional Demo Personas:'}
               </div>
 
               {DEMO_PERSONAS.map((persona) => {

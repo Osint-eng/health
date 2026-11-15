@@ -25,6 +25,7 @@ interface AnswerCardProps {
   onViewSource: (citation: Citation) => void;
   onReportIssue: (message: Message) => void;
   onSaveToHistory?: (message: Message) => void;
+  onOpenAuth?: () => void;
 }
 
 export const AnswerCard: React.FC<AnswerCardProps> = ({
@@ -34,6 +35,7 @@ export const AnswerCard: React.FC<AnswerCardProps> = ({
   onViewSource,
   onReportIssue,
   onSaveToHistory,
+  onOpenAuth,
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -61,7 +63,7 @@ export const AnswerCard: React.FC<AnswerCardProps> = ({
           icon: AlertTriangle,
           textEn: 'Possible urgent situation — seek immediate help',
           textTe: 'అత్యవసర పరిస్థితి — వెంటనే సహాయం పొందండి',
-          classes: 'bg-red-50 text-red-800 border-red-300 font-bold animate-pulse',
+          classes: 'bg-red-50 text-red-800 border-red-300 font-bold',
         };
       case 'no_approved_source_found':
         return {
@@ -128,7 +130,7 @@ export const AnswerCard: React.FC<AnswerCardProps> = ({
                     : message.evidence_strength === 'Moderate'
                     ? 'bg-sky-500'
                     : message.evidence_strength === 'Weak'
-                    ? 'bg-amber-500 animate-pulse'
+                    ? 'bg-amber-500'
                     : 'bg-rose-500'
                 }`}
               />
@@ -195,7 +197,7 @@ export const AnswerCard: React.FC<AnswerCardProps> = ({
         </div>
       )}
 
-      {/* Emergency Medical ID Card for Urgent Responses */}
+      {/* Emergency Medical ID Card (or Optional Quick-Add for Guests) for Urgent Responses */}
       {message.is_urgent && userProfile?.medical_id && (
         <div className="mb-4 p-3.5 rounded-xl bg-white border-2 border-red-300 text-xs shadow-2xs">
           <div className="flex items-center justify-between mb-2">
@@ -227,6 +229,23 @@ export const AnswerCard: React.FC<AnswerCardProps> = ({
         </div>
       )}
 
+      {message.is_urgent && !userProfile?.medical_id && onOpenAuth && (
+        <div className="mb-4 p-3 rounded-xl bg-white/90 border border-red-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <span className="text-slate-700">
+            {isTe
+              ? 'అత్యవసర వైద్య ఐడి ఇంకా సేవ్ చేయబడలేదు — రక్త గ్రూపు, అలెర్జీలు & సంప్రదింపు నంబర్‌ను జోడించవచ్చు (ఐచ్ఛికం).'
+              : 'No personal Emergency Medical ID saved — Add blood group, allergies & contact (Optional).'}
+          </span>
+          <button
+            type="button"
+            onClick={onOpenAuth}
+            className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[11px] font-bold shrink-0 transition-colors"
+          >
+            {isTe ? 'వైద్య ఐడి జోడించండి' : 'Add Medical ID'}
+          </button>
+        </div>
+      )}
+
       {/* Short Answer (Plain Language) */}
       <div className="mb-4">
         <h4 className="text-xs uppercase tracking-wider font-bold text-slate-400 mb-1">
@@ -247,67 +266,65 @@ export const AnswerCard: React.FC<AnswerCardProps> = ({
         </p>
       </div>
 
-      {/* What Approved Sources Support */}
-      {message.evidence_support_summary && (
-        <div className="mb-3 p-3 rounded-xl bg-slate-50 border border-slate-200/80 text-xs text-slate-800 flex items-start space-x-2">
-          <CheckCircle2 className="w-4 h-4 text-teal-700 shrink-0 mt-0.5" />
-          <div>
-            <span className="font-bold text-slate-900 block mb-0.5">
-              {isTe ? 'ఆమోదిత ఆధారాలు అందించే సమాచారం:' : 'What Approved Sources Support:'}
-            </span>
-            <span className="leading-relaxed">{message.evidence_support_summary}</span>
-          </div>
-        </div>
-      )}
+      {/* Unified Calm Evidence & Safety Assessment Panel */}
+      {(message.evidence_support_summary ||
+        message.limitations ||
+        message.consultation_recommendation ||
+        message.status === 'needs_professional' ||
+        message.status === 'urgent_help') && (
+        <div className="mb-4 rounded-xl border border-slate-200/90 bg-slate-50/60 divide-y divide-slate-200/70 text-xs">
+          {message.evidence_support_summary && (
+            <div className="p-3.5 text-slate-800 flex items-start space-x-2.5">
+              <CheckCircle2 className="w-4 h-4 text-teal-700 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold text-slate-900 block mb-0.5">
+                  {isTe ? 'ఆమోదిత ఆధారాలు అందించే సమాచారం:' : 'What Approved Sources Support:'}
+                </span>
+                <span className="leading-relaxed">{message.evidence_support_summary}</span>
+              </div>
+            </div>
+          )}
 
-      {/* Clear Limitations Callout */}
-      {message.limitations && (
-        <div
-          className={`mb-3 p-3 rounded-xl border text-xs flex items-start space-x-2 ${
-            message.evidence_strength === 'Moderate'
-              ? 'bg-sky-50/70 border-sky-200/90 text-sky-950'
-              : 'bg-amber-50/70 border-amber-200/90 text-amber-950'
-          }`}
-        >
-          <AlertCircle
-            className={`w-4 h-4 shrink-0 mt-0.5 ${
-              message.evidence_strength === 'Moderate' ? 'text-sky-700' : 'text-amber-700'
-            }`}
-          />
-          <div>
-            <span
-              className={`font-bold block mb-0.5 ${
-                message.evidence_strength === 'Moderate' ? 'text-sky-900' : 'text-amber-900'
-              }`}
-            >
-              {message.evidence_strength === 'Moderate'
-                ? isTe
-                  ? 'పరిమితులు (Moderate Evidence — సాధారణ మార్గదర్శకం మాత్రమే):'
-                  : 'Limitations (Moderate Evidence — General Guidance Only):'
-                : isTe
-                ? 'పరిధి & పరిమితులు (ఈ పత్రాలు కవర్ చేయని అంశాలు):'
-                : 'Evidence Limitations (What Sources Do Not Cover):'}
-            </span>
-            <span className="leading-relaxed">{message.limitations}</span>
-          </div>
-        </div>
-      )}
+          {message.limitations && (
+            <div className="p-3.5 text-slate-800 flex items-start space-x-2.5">
+              <AlertCircle
+                className={`w-4 h-4 shrink-0 mt-0.5 ${
+                  message.evidence_strength === 'Moderate' ? 'text-sky-700' : 'text-amber-700'
+                }`}
+              />
+              <div>
+                <span className="font-bold text-slate-900 block mb-0.5">
+                  {message.evidence_strength === 'Moderate'
+                    ? isTe
+                      ? 'పరిమితులు (Moderate Evidence — సాధారణ మార్గదర్శకం మాత్రమే):'
+                      : 'Limitations (Moderate Evidence — General Guidance Only):'
+                    : isTe
+                    ? 'పరిధి & పరిమితులు (ఈ పత్రాలు కవర్ చేయని అంశాలు):'
+                    : 'Evidence Limitations (What Sources Do Not Cover):'}
+                </span>
+                <span className="leading-relaxed text-slate-700">{message.limitations}</span>
+              </div>
+            </div>
+          )}
 
-      {/* Recommendation to Consult a Healthcare Professional */}
-      {(message.consultation_recommendation || message.status === 'needs_professional' || message.status === 'urgent_help') && (
-        <div className="mb-4 p-3 rounded-xl bg-teal-50/60 border border-teal-200/80 text-xs text-teal-950 flex items-start space-x-2">
-          <Stethoscope className="w-4 h-4 text-teal-800 shrink-0 mt-0.5" />
-          <div>
-            <span className="font-bold text-teal-900 block mb-0.5">
-              {isTe ? 'వైద్య సంప్రదింపు సూచన:' : 'Clinical Consultation Advice:'}
-            </span>
-            <span className="leading-relaxed">
-              {message.consultation_recommendation ||
-                (isTe
-                  ? 'వ్యక్తిగత ఆరోగ్య సమస్యల కోసం దయచేసి అర్హత కలిగిన వైద్యుడిని లేదా సమీప ఆరోగ్య కేంద్రాన్ని సంప్రదించండి.'
-                  : 'For personal health symptoms or clinical treatment, always consult a qualified healthcare professional.')}
-            </span>
-          </div>
+          {(message.consultation_recommendation ||
+            message.status === 'needs_professional' ||
+            message.status === 'urgent_help') && (
+            <div className="p-3.5 text-slate-800 flex items-start space-x-2.5">
+              <Stethoscope className="w-4 h-4 text-teal-800 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold text-slate-900 block mb-0.5">
+                  {isTe ? 'వైద్య సంప్రదింపు సూచన:' : 'Clinical Consultation Advice:'}
+                </span>
+                <span className="leading-relaxed text-slate-700">
+                  {message.consultation_recommendation ||
+                    (isTe
+                      ? 'వ్యక్తిగత ఆరోగ్య సమస్యల కోసం దయచేసి అర్హత కలిగిన వైద్యుడిని లేదా సమీప ఆరోగ్య కేంద్రాన్ని సంప్రదించండి.'
+                      : 'For personal health symptoms or clinical treatment, always consult a qualified healthcare professional.')}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

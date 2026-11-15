@@ -20,7 +20,7 @@ export const EmergencyHelpBanner: React.FC<EmergencyHelpBannerProps> = ({
       {/* Persistent Top Emergency Bar */}
       <div className="bg-gradient-to-r from-red-700 via-rose-700 to-red-800 text-white px-4 py-2 text-xs md:text-sm font-medium flex items-center justify-between shadow-sm border-b border-red-900/20">
         <div className="flex items-center space-x-2 truncate mr-2">
-          <AlertTriangle className="w-4 h-4 text-amber-300 shrink-0 animate-pulse" />
+          <AlertTriangle className="w-4 h-4 text-amber-300 shrink-0" />
           <span className="truncate">
             {isTe ? (
               <span className="font-telugu">

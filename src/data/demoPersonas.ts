@@ -87,12 +87,12 @@ export const DEMO_PERSONAS: UserProfile[] = [
   },
   {
     id: 'user_guest',
-    name: 'Guest Patient',
+    name: 'Guest',
     role: 'patient',
-    badge: 'Anonymous Guest',
-    organization: 'Private Browsing',
+    badge: 'Instant Guest Mode',
+    organization: 'No Sign-In Required',
     preferred_language: 'en',
-    avatar_color: 'bg-slate-500',
+    avatar_color: 'bg-slate-600',
     permissions: {
       can_ask: true,
       can_browse_library: true,
@@ -105,4 +105,5 @@ export const DEMO_PERSONAS: UserProfile[] = [
   },
 ];
 
-export const DEFAULT_USER = DEMO_PERSONAS[0]; // Default to Dr. Sunita for hackathon judges to see full power
+export const DEFAULT_USER = DEMO_PERSONAS[3]; // Start effortlessly in Guest mode with zero login friction
+

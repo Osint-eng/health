@@ -2,7 +2,6 @@ import React from 'react';
 import {
   Mic,
   MessageSquare,
-  Sparkles,
   ArrowRight,
   ShieldCheck,
   Heart,
@@ -11,7 +10,6 @@ import {
   CreditCard,
   PhoneCall,
   Clock,
-  BookOpen,
 } from 'lucide-react';
 import { Conversation, Language } from '../types';
 import { TRANSLATIONS } from '../locales/translations';
@@ -88,253 +86,256 @@ export const HomePage: React.FC<HomePageProps> = ({
   ];
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-6 md:py-10 space-y-8 animate-fade-in">
-      {/* Hero Header */}
-      <div className="text-center space-y-3">
-        <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-teal-100/70 text-teal-800 text-xs font-semibold">
-          <Sparkles className="w-3.5 h-3.5 text-teal-700" />
-          <span>{isTe ? 'ఆధారాల నిబద్ధత కలిగిన ఆరోగ్య వేదిక' : 'Evidence-Disciplined Healthcare AI'}</span>
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 md:py-10 space-y-8 animate-fade-in">
+      {/* 1. Calm Institutional Hero (<5s Identity + Guest-First CTA) */}
+      <section className="bg-white rounded-3xl border border-slate-200/90 shadow-xs p-6 sm:p-10 text-center space-y-5">
+        <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-teal-50 border border-teal-200/80 text-teal-800 text-[11px] font-bold uppercase tracking-wider">
+          <ShieldCheck className="w-3.5 h-3.5 text-teal-700" />
+          <span>{isTe ? 'WHO · PAHO · NHA ధృవీకరించిన ఆధారాలు' : 'WHO · PAHO · NHA Verified Knowledge'}</span>
         </div>
 
-        <h1 className="text-3xl sm:text-4xl md:text-5xl font-extrabold text-slate-900 tracking-tight leading-tight">
-          {isTe ? (
-            <span className="font-telugu">ఆధారం బలంగా ఉంటేనే సమాధానం.</span>
-          ) : (
-            <span>
-              Answers only when <span className="text-teal-700">evidence is strong enough.</span>
-            </span>
-          )}
-        </h1>
+        <div className="space-y-2.5 max-w-2xl mx-auto">
+          <h1 className="text-3xl sm:text-4xl md:text-5xl font-extrabold text-slate-900 tracking-tight leading-[1.12]">
+            {isTe ? (
+              <span className="font-telugu">ఆధారం బలంగా ఉంటేనే సమాధానం.</span>
+            ) : (
+              <span>
+                Health answers you can{' '}
+                <span className="text-teal-700">independently verify.</span>
+              </span>
+            )}
+          </h1>
 
-        <p className="max-w-2xl mx-auto text-sm sm:text-base text-slate-700 font-semibold">
-          {isTe
-            ? 'చాలా ఆరోగ్య AIలు సమాధానం చెప్పడానికి ప్రయత్నిస్తాయి. ఆరోగ్య వాయిస్ మాత్రం ధృవీకరించబడిన ఆధారాలు ఉంటేనే సమాధానం ఇస్తుంది — లేకపోతే సురక్షితంగా నిరాకరిస్తుంది.'
-            : 'Most health AIs try to answer. Arogya Voice answers only when approved evidence is strong enough.'}
-        </p>
-
-        <p className="max-w-2xl mx-auto text-xs sm:text-sm text-slate-500 font-medium">
-          {t.scopeStatement}
-        </p>
-      </div>
-
-      {/* Main Interaction Cards (Ask by Voice / Type) */}
-      <div className="bg-gradient-to-b from-white to-teal-50/40 rounded-3xl p-6 sm:p-8 border border-teal-900/10 shadow-sm text-center relative overflow-hidden">
-        <div className="max-w-md mx-auto space-y-4">
-          <p className="text-xs uppercase tracking-wider font-bold text-teal-800">
-            {isTe ? 'మీరు ఏమి తెలుసుకోవాలనుకుంటున్నారు?' : 'What would you like to know today?'}
+          <p className="text-sm sm:text-base text-slate-700 font-semibold leading-relaxed">
+            {isTe
+              ? 'చాలా ఆరోగ్య AIలు సమాధానం చెప్పడానికి ప్రయత్నిస్తాయి. ఆరోగ్య వాయిస్ మాత్రం ఆమోదిత ఆధారాలు బలంగా ఉన్నప్పుడే సమాధానం ఇస్తుంది.'
+              : 'Most health AIs try to answer. Arogya Voice answers only when approved evidence is strong enough.'}
           </p>
+        </div>
 
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onStartVoice}
-              className="w-full sm:w-auto px-6 py-4 bg-teal-700 hover:bg-teal-800 text-white rounded-2xl text-sm sm:text-base font-bold shadow-md shadow-teal-700/20 flex items-center justify-center space-x-2.5 transition-transform active:scale-95 group"
-            >
-              <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center group-hover:scale-110 transition-transform">
-                <Mic className="w-4 h-4 text-white" />
+        {/* Single Effortless Guest-First Entry Actions */}
+        <div className="pt-1 flex flex-col sm:flex-row items-center justify-center gap-3">
+          <button
+            type="button"
+            onClick={onStartText}
+            className="w-full sm:w-auto px-7 py-3.5 bg-teal-700 hover:bg-teal-800 text-white rounded-2xl text-sm sm:text-base font-bold shadow-sm shadow-teal-700/15 flex items-center justify-center space-x-2 transition-colors"
+          >
+            <MessageSquare className="w-4 h-4 text-teal-100" />
+            <span className={isTe ? 'font-telugu' : ''}>
+              {isTe ? 'అతిథిగా ప్రశ్న అడగండి (లాగిన్ అవసరం లేదు)' : 'Start Asking as Guest'}
+            </span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
+
+          <button
+            type="button"
+            onClick={onStartVoice}
+            className="w-full sm:w-auto px-6 py-3.5 bg-slate-50 hover:bg-teal-50/70 text-slate-800 hover:text-teal-900 border border-slate-200 hover:border-teal-300 rounded-2xl text-sm sm:text-base font-semibold flex items-center justify-center space-x-2 transition-colors"
+          >
+            <Mic className="w-4 h-4 text-teal-700" />
+            <span className={isTe ? 'font-telugu' : ''}>{t.askByVoice}</span>
+          </button>
+        </div>
+
+        <div className="pt-1 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-slate-500">
+          <span>{isTe ? 'లాగిన్ లేదా ఖాతా అవసరం లేదు' : 'No login required'}</span>
+          <span className="text-slate-300">•</span>
+          <span>{isTe ? 'ఇంగ్లీష్ & తెలుగు వాయిస్' : 'English & తెలుగు Voice'}</span>
+          <span className="text-slate-300">•</span>
+          <span>{isTe ? 'ప్రతి సమాధానానికి ఆధారం & పరిమితులు' : 'Pre-Answer Evidence Validation'}</span>
+        </div>
+      </section>
+
+      {/* 2. Four Core Pillars (Clear Module Row) */}
+      <section aria-label="Core Safety Pillars" className="space-y-3">
+        <div className="flex items-center justify-between px-1">
+          <h2 className="text-xs font-extrabold uppercase tracking-wider text-slate-500">
+            {isTe ? 'నాలుగు ప్రధాన భద్రతా స్తంభాలు' : 'Four Core Safety Pillars'}
+          </h2>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+          <div className="p-4 bg-white rounded-2xl border border-slate-200/90 shadow-2xs flex flex-col justify-between space-y-2">
+            <div>
+              <div className="text-[11px] font-bold text-teal-700 mb-1">
+                01 · {isTe ? 'ఆధారాల నిబద్ధత' : 'Evidence Discipline'}
               </div>
-              <span className={isTe ? 'font-telugu' : ''}>{t.askByVoice}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={onStartText}
-              className="w-full sm:w-auto px-6 py-4 bg-white hover:bg-slate-50 text-slate-800 border border-slate-200 rounded-2xl text-sm sm:text-base font-semibold shadow-xs flex items-center justify-center space-x-2 transition-colors"
-            >
-              <MessageSquare className="w-4 h-4 text-teal-700" />
-              <span className={isTe ? 'font-telugu' : ''}>{t.typeQuestion}</span>
-            </button>
+              <h3 className="font-bold text-slate-900 text-sm">
+                {isTe ? 'బలం లేకుంటే నిరాకరణ' : 'Refuses Weak Claims'}
+              </h3>
+              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                {isTe
+                  ? 'Strong, Moderate, Weak, None ఆధారాల స్థాయిని బట్టి మాత్రమే సమాధానం.'
+                  : 'Scores every query across Strong, Moderate, Weak, and None — refusing rather than guessing.'}
+              </p>
+            </div>
           </div>
 
-          <div className="pt-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-slate-500">
-            <span className="flex items-center">
-              <ShieldCheck className="w-3.5 h-3.5 text-teal-600 mr-1" />
-              {isTe ? 'ఆధారాల బలం గేట్' : 'Strict Evidence Gate'}
-            </span>
-            <span>•</span>
-            <span>{isTe ? 'సురక్షిత నిరాకరణ' : 'Refuses Weak Claims'}</span>
-            <span>•</span>
-            <span>{isTe ? '108/112 అత్యవసర రూటింగ్' : '108/112 Emergency Routing'}</span>
+          <div className="p-4 bg-white rounded-2xl border border-slate-200/90 shadow-2xs flex flex-col justify-between space-y-2">
+            <div>
+              <div className="text-[11px] font-bold text-amber-700 mb-1">
+                02 · {isTe ? 'క్లినికల్ సంయమనం' : 'Clinical Abstention'}
+              </div>
+              <h3 className="font-bold text-slate-900 text-sm">
+                {isTe ? 'డోసేజ్ & నిర్ధారణ నిషేధం' : 'No Diagnosis or Dosages'}
+              </h3>
+              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                {isTe
+                  ? 'మందుల మోతాదులు లేదా వ్యాధి నిర్ధారణ అడిగితే వైద్యుడిని సూచిస్తుంది.'
+                  : 'Blocks prescribing or personal dosing requests and suggests doctor questions.'}
+              </p>
+            </div>
           </div>
+
+          <div className="p-4 bg-white rounded-2xl border border-slate-200/90 shadow-2xs flex flex-col justify-between space-y-2">
+            <div>
+              <div className="text-[11px] font-bold text-red-700 mb-1">
+                03 · {isTe ? 'అత్యవసర రూటింగ్' : 'Emergency Routing'}
+              </div>
+              <h3 className="font-bold text-slate-900 text-sm">
+                {isTe ? 'తక్షణ 108 / 112 సహాయం' : 'Instant 108 / 112 Triage'}
+              </h3>
+              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                {isTe
+                  ? 'ఛాతీ నొప్పి, శ్వాస ఇబ్బంది వంటి లక్షణాలకు తక్షణ ఎమర్జెన్సీ నంబర్లు.'
+                  : 'Detects red-flag symptoms immediately and dispatches helpline dialers.'}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onOpenUrgent}
+            className="p-4 bg-white hover:bg-rose-50/40 rounded-2xl border border-slate-200/90 hover:border-rose-300 shadow-2xs text-left transition-colors group flex flex-col justify-between space-y-2"
+          >
+            <div>
+              <div className="text-[11px] font-bold text-rose-700 mb-1 flex items-center justify-between">
+                <span>04 · {isTe ? 'వ్యక్తిగత వైద్య ఐడి' : 'Emergency Medical ID'}</span>
+                <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+              </div>
+              <h3 className="font-bold text-slate-900 text-sm">
+                {isTe ? 'రక్త గ్రూపు & అలెర్జీ కార్డు' : 'Personal Medical ID'}
+              </h3>
+              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                {isTe
+                  ? 'రక్త గ్రూపు, అలెర్జీలు & అత్యవసర నంబర్ అత్యవసరంలో వెంటనే కనిపిస్తాయి.'
+                  : 'Optional blood group, allergies & family contact surfaced during emergencies.'}
+              </p>
+            </div>
+          </button>
         </div>
-      </div>
+      </section>
 
-      {/* Four Core Pillars */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="p-4 bg-white rounded-2xl border border-teal-200/80 shadow-xs space-y-1.5">
-          <div className="text-[10px] font-extrabold uppercase tracking-wider text-teal-700">
-            01 · {isTe ? 'ఆధారాల నిబద్ధత' : 'Evidence Discipline'}
-          </div>
-          <h4 className="font-bold text-slate-900 text-sm">
-            {isTe ? 'బలం లేకుంటే నిరాకరణ' : 'Refuses Without Evidence'}
-          </h4>
-          <p className="text-xs text-slate-500 leading-relaxed">
-            {isTe
-              ? 'Strong, Moderate, Weak, None ఆధారాల స్థాయిని బట్టి మాత్రమే సమాధానం.'
-              : 'Calibrates every reply across Strong, Moderate, Weak, and None — hedging or refusing instead of guessing.'}
-          </p>
-        </div>
-
-        <div className="p-4 bg-white rounded-2xl border border-amber-200/80 shadow-xs space-y-1.5">
-          <div className="text-[10px] font-extrabold uppercase tracking-wider text-amber-700">
-            02 · {isTe ? 'క్లినికల్ సంయమనం' : 'Clinical Abstention'}
-          </div>
-          <h4 className="font-bold text-slate-900 text-sm">
-            {isTe ? 'డోసేజ్ & రోగ నిర్ధారణ నిషేధం' : 'No Diagnosis or Dosages'}
-          </h4>
-          <p className="text-xs text-slate-500 leading-relaxed">
-            {isTe
-              ? 'వ్యక్తిగత మందుల మోతాదులు లేదా నిర్ధారణ అడిగితే వైద్యుడిని సూచిస్తుంది.'
-              : 'Strictly blocks prescribing and personal dosing requests and generates questions for your doctor.'}
-          </p>
-        </div>
-
-        <div className="p-4 bg-white rounded-2xl border border-red-200/80 shadow-xs space-y-1.5">
-          <div className="text-[10px] font-extrabold uppercase tracking-wider text-red-700">
-            03 · {isTe ? 'అత్యవసర రూటింగ్' : 'Emergency Routing'}
-          </div>
-          <h4 className="font-bold text-slate-900 text-sm">
-            {isTe ? 'తక్షణ 108 / 112 సహాయం' : 'Instant 108 / 112 Triage'}
-          </h4>
-          <p className="text-xs text-slate-500 leading-relaxed">
-            {isTe
-              ? 'ఛాతీ నొప్పి, శ్వాస ఇబ్బంది వంటి లక్షణాలకు తక్షణ ఎమర్జెన్సీ నంబర్లు.'
-              : 'Detects acute red flags like chest pain, stroke, or breathlessness and dispatches direct helpline dialers.'}
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onClick={onOpenUrgent}
-          className="p-4 bg-rose-50/50 hover:bg-rose-50 rounded-2xl border border-rose-200/90 shadow-xs space-y-1.5 text-left transition-colors group"
-        >
-          <div className="text-[10px] font-extrabold uppercase tracking-wider text-rose-700 flex items-center justify-between">
-            <span>04 · {isTe ? 'వ్యక్తిగత వైద్య ఐడి' : 'Emergency Medical ID'}</span>
-            <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
-          </div>
-          <h4 className="font-bold text-slate-900 text-sm">
-            {isTe ? 'రక్త గ్రూపు & అలెర్జీ కార్డు' : 'Personal First-Responder ID'}
-          </h4>
-          <p className="text-xs text-slate-500 leading-relaxed">
-            {isTe
-              ? 'రక్త గ్రూపు, అలెర్జీలు, అత్యవసర నంబర్ & ABHA ఐడి అత్యవసరంలో వెంటనే కనిపిస్తాయి.'
-              : 'Surfaces your blood group, allergies, chronic conditions & family contact directly during emergencies.'}
-          </p>
-        </button>
-      </div>
-
-      {/* Reviewed Official Topics */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
+      {/* 3. Reviewed Official Knowledge Topics */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between px-1">
           <div>
-            <h3 className="text-lg font-bold text-slate-900">
+            <h2 className="text-base sm:text-lg font-bold text-slate-900">
               {t.exploreReviewedTopics}
-            </h3>
+            </h2>
             <p className="text-xs text-slate-500">
               {isTe
-                ? 'ప్రస్తుతం పరిశీలించిన 3 ఆరోగ్య రంగాలు మరియు 1 ప్రభుత్వ పథకం అందుబాటులో ఉన్నాయి.'
-                : 'Narrowly selected, peer-reviewed public health guidelines.'}
+                ? 'ధృవీకరించిన పత్రాల నుండి నేరుగా ఒక అంశాన్ని ఎంచుకోండి.'
+                : 'Select an indexed WHO, PAHO, or NHA domain to test grounded answers.'}
             </p>
           </div>
 
           <button
             type="button"
             onClick={onOpenLibrary}
-            className="text-xs font-semibold text-teal-800 hover:underline flex items-center space-x-1"
+            className="text-xs font-semibold text-teal-800 hover:underline flex items-center space-x-1 shrink-0"
           >
-            <span>{isTe ? 'లైబ్రరీ చూడండి' : 'View Library'}</span>
+            <span>{isTe ? 'లైబ్రరీ చూడండి' : 'Browse Library'}</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
           {topics.map((item) => {
             const Icon = item.icon;
             return (
               <div
                 key={item.id}
                 onClick={() => onSelectTopic(item.id, item.sampleQuery)}
-                className="p-5 bg-white rounded-2xl border border-slate-200 hover:border-teal-400/80 hover:shadow-md transition-all cursor-pointer group flex flex-col justify-between"
+                className="p-4 sm:p-5 bg-white rounded-2xl border border-slate-200/90 hover:border-teal-400 hover:shadow-sm transition-all cursor-pointer group flex flex-col justify-between"
               >
                 <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="w-10 h-10 rounded-xl bg-teal-50 border border-teal-200/50 flex items-center justify-center text-teal-800 group-hover:bg-teal-700 group-hover:text-white transition-colors">
-                      <Icon className="w-5 h-5" />
+                  <div className="flex items-center justify-between mb-2.5">
+                    <div className="flex items-center space-x-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-800 group-hover:bg-teal-700 group-hover:text-white transition-colors shrink-0">
+                        <Icon className="w-4 h-4" />
+                      </div>
+                      <span className="text-[11px] font-bold text-teal-800 bg-teal-50/80 border border-teal-200/60 px-2 py-0.5 rounded-md">
+                        {item.badge}
+                      </span>
                     </div>
-                    <span className="text-[11px] font-semibold text-teal-800 group-hover:underline flex items-center">
-                      <span>{isTe ? 'అడగండి' : 'Ask topic'}</span>
+                    <span className="text-xs font-semibold text-teal-700 group-hover:underline flex items-center">
+                      <span>{isTe ? 'అడగండి' : 'Ask'}</span>
                       <ArrowRight className="w-3 h-3 ml-1" />
                     </span>
                   </div>
 
-                  <div className="flex items-center space-x-2 mb-1">
-                    <span className="text-[10px] font-bold text-teal-800 bg-teal-50 border border-teal-200/80 px-2 py-0.5 rounded-md">
-                      {item.badge}
-                    </span>
-                  </div>
-                  <h4 className="font-bold text-slate-900 text-sm mb-1 group-hover:text-teal-900">
+                  <h3 className="font-bold text-slate-900 text-sm mb-1 group-hover:text-teal-900">
                     {isTe ? item.titleTe : item.titleEn}
-                  </h4>
+                  </h3>
                   <p className="text-xs text-slate-500 line-clamp-2">
                     {isTe ? item.descTe : item.descEn}
                   </p>
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-slate-100 text-[11px] text-teal-900 font-medium bg-teal-50/50 p-2 rounded-xl italic">
-                  "{item.sampleQuery}"
+                <div className="mt-3 pt-2.5 border-t border-slate-100 text-[11px] text-slate-600 line-clamp-1">
+                  “{item.sampleQuery}”
                 </div>
               </div>
             );
           })}
         </div>
-      </div>
+      </section>
 
-      {/* Recent Saved Conversations */}
+      {/* 4. Recent Saved Conversations */}
       {recentConversations.length > 0 && (
-        <div className="pt-2">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
-              <Clock className="w-4 h-4 text-slate-500" />
-              <span>{isTe ? 'ఇటీవలి సంభాషణలు' : 'Recent Conversations'}</span>
-            </h3>
-          </div>
+        <section className="space-y-2.5">
+          <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-500 flex items-center space-x-1.5 px-1">
+            <Clock className="w-3.5 h-3.5 text-slate-400" />
+            <span>{isTe ? 'ఇటీవలి సంభాషణలు' : 'Recent Sessions'}</span>
+          </h3>
 
-          <div className="space-y-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
             {recentConversations.slice(0, 3).map((conv) => (
               <div
                 key={conv.id}
                 onClick={() => onOpenConversation(conv)}
                 className="p-3 bg-white rounded-xl border border-slate-200/80 hover:border-teal-400 cursor-pointer transition-all flex items-center justify-between"
               >
-                <div className="truncate pr-4">
-                  <span className="font-semibold text-xs md:text-sm text-slate-900 truncate block">
+                <div className="truncate pr-3">
+                  <span className="font-semibold text-xs text-slate-900 truncate block">
                     {conv.title}
                   </span>
                   <span className="text-[10px] text-slate-400">
-                    {new Date(conv.updated_at).toLocaleDateString()} · {conv.messages.length} messages
+                    {new Date(conv.updated_at).toLocaleDateString()} · {conv.messages.length} msgs
                   </span>
                 </div>
-                <ArrowRight className="w-4 h-4 text-slate-400 shrink-0" />
+                <ArrowRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
               </div>
             ))}
           </div>
-        </div>
+        </section>
       )}
 
-      {/* Persistent Emergency Card at bottom */}
-      <div className="p-4 bg-red-50 border border-red-200 rounded-2xl flex items-center justify-between">
+      {/* 5. Calm Emergency Card */}
+      <div className="p-4 bg-rose-50/70 border border-rose-200 rounded-2xl flex items-center justify-between gap-3">
         <div className="flex items-center space-x-3">
-          <div className="w-9 h-9 rounded-xl bg-red-100 flex items-center justify-center text-red-600 shrink-0">
+          <div className="w-9 h-9 rounded-xl bg-rose-100 flex items-center justify-center text-rose-700 shrink-0">
             <PhoneCall className="w-4 h-4" />
           </div>
           <div>
-            <div className="text-xs font-bold text-red-950">
-              {isTe ? 'అత్యవసర వైద్య పరిస్థితి ఉన్నప్పుడు:' : 'Need Immediate Emergency Care?'}
+            <div className="text-xs font-bold text-rose-950">
+              {isTe ? 'అత్యవసర వైద్య పరిస్థితి?' : 'Need Immediate Emergency Care?'}
             </div>
-            <div className="text-[11px] text-red-700">
+            <div className="text-[11px] text-rose-800">
               {isTe
-                ? 'ఆరోగ్య వాయిస్ సాధారణ సమాచార వేదిక మాత్రమే. అత్యవసర సేవలకు 108 / 112 కు కాల్ చేయండి.'
-                : 'Arogya Voice is for general information only. Dial 108 / 112 for ambulance services.'}
+                ? 'ఆరోగ్య వాయిస్ సాధారణ సమాచార వేదిక మాత్రమే. అత్యవసరానికి 108 / 112 కు కాల్ చేయండి.'
+                : 'For acute symptoms, dial 108 / 112 immediately or open Urgent Help & Medical ID.'}
             </div>
           </div>
         </div>
@@ -342,9 +343,9 @@ export const HomePage: React.FC<HomePageProps> = ({
         <button
           type="button"
           onClick={onOpenUrgent}
-          className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shrink-0 transition-colors"
+          className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shrink-0 transition-colors"
         >
-          {isTe ? 'సహాయం' : 'Emergency Help'}
+          {isTe ? 'అత్యవసర సహాయం' : 'Urgent Help'}
         </button>
       </div>
     </div>
