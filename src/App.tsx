@@ -135,9 +135,16 @@ export default function App() {
       setConversations(convList);
       if (convList.length > 0) {
         setCurrentConversation(convList[0]);
+      } else {
+        setCurrentConversation(null);
       }
       setCurrentTab('ask');
-    } catch (e) {
+    } catch (e: any) {
+      if (e?.status === 401 || e?.message === 'ADMIN_AUTH_REQUIRED') {
+        setShowAuthModal(false);
+        setCurrentTab('admin');
+        return;
+      }
       console.error('Failed to reset demo store:', e);
     }
   };

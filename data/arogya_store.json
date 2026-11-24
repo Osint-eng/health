@@ -17,67 +17,7 @@
     "pipeline_orchestrator": "pipecat",
     "piper_voice": "en_US-lessac-medium"
   },
-  "conversations": [
-    {
-      "id": "conv_seed_demo",
-      "title": "Severe Dengue & Child Growth Standards",
-      "topic": "mosquito_borne",
-      "language": "en",
-      "created_at": "2026-11-15T04:41:56.748Z",
-      "updated_at": "2026-11-15T05:41:56.748Z",
-      "is_guest": false,
-      "messages": [
-        {
-          "id": "msg_u_seed_1",
-          "conversation_id": "conv_seed_demo",
-          "role": "user",
-          "text": "What are the emergency warning signs of severe dengue that require immediate hospitalization?",
-          "language": "en",
-          "status": "supported_by_reviewed_sources",
-          "citations": [],
-          "created_at": "2026-11-15T04:43:36.748Z"
-        },
-        {
-          "id": "msg_a_seed_1",
-          "conversation_id": "conv_seed_demo",
-          "role": "assistant",
-          "text": "According to the World Health Organization (WHO Fact Sheets on Dengue & Severe Dengue): Warning signs typically appear 3 to 7 days after the first symptoms, often as fever drops. These include persistent vomiting (more than 3 times in 24 hours), severe abdominal pain, fluid accumulation with respiratory difficulty, mucosal bleeding (gums or nose), blood in vomit or stools, and extreme restlessness or lethargy. Any patient exhibiting these warning signs requires immediate emergency hospitalization.",
-          "spoken_text": "Warning signs of severe dengue include persistent vomiting, severe abdominal pain, fluid accumulation, bleeding, and extreme lethargy. Patients showing any warning sign must be hospitalized immediately.",
-          "language": "en",
-          "status": "supported_by_reviewed_sources",
-          "evidence_strength": "Strong",
-          "evidence_support_summary": "Directly corroborated by primary official guidelines from WHO Global Health Observatory (Section 3).",
-          "limitations": "Official public health guidance; applies to emergency clinical recognition and hospital referral, and cannot substitute for inpatient hematocrit and vitals monitoring.",
-          "consultation_recommendation": "Any patient exhibiting severe dengue warning signs must be transported immediately to an emergency hospital casualty ward.",
-          "similarity_score": 0.89,
-          "retrieval_method": "1024-Dim Dense Subword Cosine Retrieval (In-Memory Vector Store)",
-          "citations": [
-            {
-              "source_id": "who-mosquito-dengue-malaria-2024",
-              "document_title": "WHO Fact Sheets & Prevention Guidelines: Dengue, Severe Dengue, and Malaria",
-              "publisher": "World Health Organization (WHO) & Global Health Observatory",
-              "publication_date": "2024-04-23",
-              "review_date": "2024-05-10",
-              "document_version_id": "v3.2",
-              "chunk_id": "chunk-mosq-02",
-              "page_or_section": "Emergency Warning Signs — Section 3 (p. 7)",
-              "supporting_excerpt": "Severe dengue is a life-threatening medical emergency due to plasma leakage, fluid accumulation, respiratory distress, severe bleeding, or organ impairment. Warning signs typically appear 3 to 7 days after first symptoms, often as fever drops: persistent vomiting (more than 3 times in 24 hours), severe abdominal pain, rapid breathing, bleeding gums or nose, blood in vomit or stools, and extreme lethargy or restlessness. Patients showing any warning sign must be hospitalized immediately.",
-              "original_url": "https://www.who.int/news-room/fact-sheets/detail/dengue-and-severe-dengue",
-              "similarity_score": 0.89,
-              "cosine_distance": 0.11
-            }
-          ],
-          "detailed_explanation": "Plasma leakage during the critical phase can lead to hypovolemic shock, circulatory collapse, and severe internal hemorrhage. Immediate intravenous fluid management under qualified clinical observation in an emergency ward is vital.",
-          "questions_to_ask_doctor": [
-            "What is the patient's current hematocrit count and platelet trend?",
-            "What are the warning signs that indicate fluid resuscitation is working?"
-          ],
-          "audio_status": "ready",
-          "created_at": "2026-11-15T04:45:16.748Z"
-        }
-      ]
-    }
-  ],
+  "conversations": [],
   "feedbackReports": [
     {
       "id": "report-demo-1",

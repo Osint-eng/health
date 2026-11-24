@@ -50,6 +50,7 @@ export interface Message {
 
 export interface Conversation {
   id: string;
+  session_id?: string;
   title: string;
   topic?: string;
   language: Language;
@@ -92,7 +93,7 @@ export interface DocumentSource {
   original_url: string;
   language: Language;
   current_version: string;
-  status: 'draft' | 'needs_review' | 'approved' | 'indexed' | 'archived';
+  status: 'draft' | 'needs_review' | 'approved' | 'indexed' | 'archived' | 'reference_only';
   publication_date: string;
   review_date: string;
   reviewer_name: string;

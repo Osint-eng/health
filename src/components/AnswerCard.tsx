@@ -110,8 +110,8 @@ export const AnswerCard: React.FC<AnswerCardProps> = ({
             <span>{isTe ? statusInfo.textTe : statusInfo.textEn}</span>
           </span>
 
-          {/* Evidence Strength Badge */}
-          {message.evidence_strength && (
+          {/* Evidence Strength Badge (only shown for retrieved/refusal answers, never mislabeled Strong on rule-based urgent triage) */}
+          {message.evidence_strength ? (
             <span
               className={`inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border shadow-2xs ${
                 message.evidence_strength === 'Strong'
@@ -148,7 +148,11 @@ export const AnswerCard: React.FC<AnswerCardProps> = ({
                   : `Evidence Strength: ${message.evidence_strength}`}
               </span>
             </span>
-          )}
+          ) : message.is_urgent ? (
+            <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border bg-rose-100/70 text-rose-900 border-rose-300">
+              <span>{isTe ? 'నియమ ఆధారిత భద్రతా ట్రయాజ్' : 'Safety Triage Rule (No RAG)'}</span>
+            </span>
+          ) : null}
         </div>
 
         {/* Audio Player for this answer */}
@@ -249,7 +253,11 @@ export const AnswerCard: React.FC<AnswerCardProps> = ({
       {/* Short Answer (Plain Language) */}
       <div className="mb-4">
         <h4 className="text-xs uppercase tracking-wider font-bold text-slate-400 mb-1">
-          {message.evidence_strength === 'None'
+          {message.is_urgent
+            ? isTe
+              ? 'తక్షణ భద్రతా సూచన (Immediate Safety Guidance)'
+              : 'Immediate Safety Guidance'
+            : message.evidence_strength === 'None'
             ? isTe
               ? 'ఆధారాల తిరస్కరణ (Refusal)'
               : 'Evidence Refusal'

@@ -21,8 +21,11 @@ import {
   RotateCcw,
   Sparkles,
   ExternalLink,
+  Lock,
+  KeyRound,
+  LogOut,
 } from 'lucide-react';
-import { FeedbackReport, IngestionJob, KnowledgeTopic, Language, EvaluationResult } from '../types';
+import { DocumentSource, FeedbackReport, IngestionJob, KnowledgeTopic, Language, EvaluationResult } from '../types';
 import { api } from '../services/api';
 
 interface AdminPageProps {
@@ -35,6 +38,14 @@ export const AdminPage: React.FC<AdminPageProps> = ({ language, onResetDemoData 
   const [metrics, setMetrics] = useState<any>(null);
   const [reviews, setReviews] = useState<FeedbackReport[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Admin Authentication State
+  const [authChecked, setAuthChecked] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [bootstrapRequired, setBootstrapRequired] = useState(false);
+  const [adminTokenInput, setAdminTokenInput] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [authSubmitting, setAuthSubmitting] = useState(false);
 
   // Live Benchmark Runner State
   const [benchmarkResult, setBenchmarkResult] = useState<EvaluationResult | null>(null);
@@ -52,7 +63,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ language, onResetDemoData 
     }
   };
 
-  // Ingestion form state
+  // Ingestion & Operator Approval State
   const [title, setTitle] = useState('');
   const [publisher, setPublisher] = useState('');
   const [topic, setTopic] = useState<KnowledgeTopic>('mosquito_borne');
@@ -60,6 +71,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ language, onResetDemoData 
   const [jurisdiction, setJurisdiction] = useState('India (MoHFW & WHO)');
   const [sourceUrl, setSourceUrl] = useState('');
   const [rawText, setRawText] = useState('');
+  const [operatorName, setOperatorName] = useState('');
   const [ingestSuccess, setIngestSuccess] = useState(false);
   const [isIngesting, setIsIngesting] = useState(false);
 
@@ -70,8 +82,60 @@ export const AdminPage: React.FC<AdminPageProps> = ({ language, onResetDemoData 
   const isTe = language === 'te';
 
   useEffect(() => {
-    loadData();
+    checkAuthAndLoad();
   }, []);
+
+  const checkAuthAndLoad = async () => {
+    setLoading(true);
+    try {
+      const status = await api.getAdminAuthStatus();
+      setIsAuthenticated(status.authenticated);
+      setBootstrapRequired(status.bootstrap_required);
+      setAuthChecked(true);
+      if (status.authenticated) {
+        await loadData();
+      } else {
+        setLoading(false);
+      }
+    } catch (e) {
+      console.error(e);
+      setAuthChecked(true);
+      setLoading(false);
+    }
+  };
+
+  const handleAdminAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+    const trimmed = adminTokenInput.trim();
+    if (!trimmed) {
+      setAuthError('Please enter an Admin Token.');
+      return;
+    }
+    setAuthSubmitting(true);
+    try {
+      if (bootstrapRequired) {
+        await api.bootstrapAdmin(trimmed);
+      } else {
+        await api.loginAdmin(trimmed);
+      }
+      setAdminTokenInput('');
+      setIsAuthenticated(true);
+      setBootstrapRequired(false);
+      await loadData();
+    } catch (err: any) {
+      setAuthError(err?.message || 'Authentication failed.');
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
+
+  const handleAdminLogout = () => {
+    api.logoutAdmin();
+    setIsAuthenticated(false);
+    setMetrics(null);
+    setReviews([]);
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -80,8 +144,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({ language, onResetDemoData 
       setMetrics(m);
       const r = await api.getAdminReviews();
       setReviews(r);
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      if (e?.status === 401 || e?.message === 'ADMIN_AUTH_REQUIRED') {
+        api.logoutAdmin();
+        setIsAuthenticated(false);
+      } else {
+        console.error(e);
+      }
     } finally {
       setLoading(false);
     }
@@ -116,7 +185,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ language, onResetDemoData 
 
   const handleApproveDoc = async (id: string) => {
     try {
-      await api.approveDocument(id);
+      await api.approveDocument(id, operatorName.trim() || undefined);
       loadData();
     } catch (err) {
       console.error(err);
@@ -143,6 +212,62 @@ export const AdminPage: React.FC<AdminPageProps> = ({ language, onResetDemoData 
     }
   };
 
+  if (authChecked && !isAuthenticated) {
+    return (
+      <div className="max-w-md mx-auto px-4 py-12 animate-fade-in">
+        <div className="bg-white rounded-3xl p-6 sm:p-7 border border-slate-200 shadow-sm space-y-5">
+          <div className="text-center space-y-2">
+            <div className="w-12 h-12 rounded-2xl bg-teal-50 border border-teal-200 flex items-center justify-center text-teal-800 mx-auto">
+              {bootstrapRequired ? <KeyRound className="w-6 h-6" /> : <Lock className="w-6 h-6" />}
+            </div>
+            <h1 className="text-xl font-extrabold text-slate-900">
+              {bootstrapRequired ? 'Set Initial Admin Passcode' : 'Admin Authentication Required'}
+            </h1>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              {bootstrapRequired
+                ? 'No ADMIN_TOKEN secret is configured in this environment yet. Claim this preview workspace by setting an admin passcode (8+ characters), or set ADMIN_TOKEN in environment secrets.'
+                : 'Enter the server ADMIN_TOKEN (or claimed admin passcode) to manage documents, review queues, tool configuration, and demo resets.'}
+            </p>
+          </div>
+
+          {authError && (
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs font-semibold text-rose-800">
+              {authError}
+            </div>
+          )}
+
+          <form onSubmit={handleAdminAuthSubmit} className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                {bootstrapRequired ? 'Choose Admin Passcode (min 8 characters) *' : 'ADMIN_TOKEN *'}
+              </label>
+              <input
+                type="password"
+                required
+                minLength={bootstrapRequired ? 8 : 1}
+                value={adminTokenInput}
+                onChange={(e) => setAdminTokenInput(e.target.value)}
+                placeholder={bootstrapRequired ? 'Enter 8+ character passcode' : 'Enter ADMIN_TOKEN secret'}
+                className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-600/30"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={authSubmitting}
+              className="w-full py-2.5 bg-teal-800 hover:bg-teal-900 disabled:bg-slate-300 text-white rounded-xl text-xs font-bold transition-colors shadow-xs"
+            >
+              {authSubmitting
+                ? 'Verifying...'
+                : bootstrapRequired
+                ? 'Claim Admin Access'
+                : 'Unlock Admin Portal'}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 md:py-8 space-y-6 animate-fade-in">
       {/* Header */}
@@ -159,34 +284,45 @@ export const AdminPage: React.FC<AdminPageProps> = ({ language, onResetDemoData 
           </p>
         </div>
 
-        {/* Tab switcher */}
-        <div className="flex bg-slate-100 p-1 rounded-xl self-start sm:self-auto border border-slate-200">
+        {/* Tab switcher + Sign Out */}
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
+            <button
+              type="button"
+              onClick={() => setActiveTab('overview')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                activeTab === 'overview' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Overview
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('ingestion')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                activeTab === 'ingestion' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Ingest Documents ({metrics?.pending_reviews_count || 0})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('reviews')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                activeTab === 'reviews' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              Safety Reviews ({reviews.filter((r) => r.status === 'pending').length})
+            </button>
+          </div>
           <button
             type="button"
-            onClick={() => setActiveTab('overview')}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-              activeTab === 'overview' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-            }`}
+            onClick={handleAdminLogout}
+            className="px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:text-rose-700 bg-white border border-slate-200 rounded-xl flex items-center space-x-1"
+            title="Lock Admin Portal"
           >
-            Overview
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('ingestion')}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-              activeTab === 'ingestion' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Ingest Documents
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('reviews')}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-              activeTab === 'reviews' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            Safety Reviews ({reviews.filter((r) => r.status === 'pending').length})
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Lock</span>
           </button>
         </div>
       </div>
@@ -531,6 +667,61 @@ export const AdminPage: React.FC<AdminPageProps> = ({ language, onResetDemoData 
               </button>
             </div>
           </form>
+
+          {/* Pending Documents Queue with Honest Operator Attribution */}
+          {Array.isArray(metrics?.pending_documents) && metrics.pending_documents.length > 0 && (
+            <div className="pt-4 border-t border-slate-200 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    Pending Documents Awaiting Indexing ({metrics.pending_documents.length})
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Operator approval indexes the document and records it honestly as an Admin Operator action (not a credentialed clinician review).
+                  </p>
+                </div>
+                <input
+                  type="text"
+                  value={operatorName}
+                  onChange={(e) => setOperatorName(e.target.value)}
+                  placeholder="Your operator name (optional)"
+                  className="text-xs px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none"
+                />
+              </div>
+
+              <div className="space-y-2.5">
+                {metrics.pending_documents.map((doc: DocumentSource) => (
+                  <div
+                    key={doc.id}
+                    className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-900 truncate">{doc.title}</div>
+                      <div className="text-[11px] text-slate-500">
+                        {doc.publisher} · {doc.chunks.length} chunks · Status: {doc.status}
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleApproveDoc(doc.id)}
+                        className="px-3 py-1.5 bg-teal-800 hover:bg-teal-900 text-white rounded-lg font-bold"
+                      >
+                        Index as Operator
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleArchiveDoc(doc.id)}
+                        className="px-3 py-1.5 bg-white hover:bg-rose-50 text-rose-700 border border-rose-200 rounded-lg font-bold"
+                      >
+                        Archive
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

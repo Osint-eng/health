@@ -513,3 +513,70 @@ export const EVALUATION_BENCHMARK_QUESTIONS = [
     collection: 'scheme_knowledge'
   }
 ];
+
+export const EMERGENCY_PROTOCOL_SOURCES: DocumentSource[] = [
+  {
+    id: 'emergency_protocol',
+    title: 'Emergency Medical Dispatch Protocol (India MoHFW & 108/112 Ambulance Service)',
+    publisher: 'Ministry of Health and Family Welfare (MoHFW) / National Health Mission',
+    category: 'health_education',
+    collection_name: 'approved_health_knowledge',
+    topic: 'common_symptoms_fever',
+    jurisdiction: 'India (National Emergency Helplines)',
+    original_url: 'https://www.mohfw.gov.in',
+    language: 'en',
+    current_version: 'v1.0',
+    status: 'reference_only',
+    publication_date: '2024-01-01',
+    review_date: '2024-04-01',
+    reviewer_name: 'Public Health Directory Reference (MoHFW / NHM)',
+    license_notes: 'Government of India Public Health Emergency Directory',
+    summary: 'Acute life-safety emergency dispatch directory for 108 Ambulance and 112 National Emergency Response Services.',
+    chunks: [
+      {
+        id: 'chunk-emerg-01',
+        version_id: 'v1.0',
+        document_id: 'emergency_protocol',
+        topic: 'common_symptoms_fever',
+        language: 'en',
+        title: 'Acute Medical Emergency Triage & 108/112 Dispatch',
+        section: 'Acute Medical Triage — Standard 1',
+        page: 1,
+        text: 'Sudden onset chest pain, difficulty breathing or not breathing, convulsions, collapse/unconsciousness, snake bite, acute stroke signs, or uncontrolled bleeding require immediate dispatch of life-support ambulance (108) or national emergency response (112).',
+        keywords: ['108', '112', 'emergency', 'chest pain', 'breathing', 'bleeding', 'ambulance']
+      }
+    ]
+  },
+  {
+    id: 'mental_health_crisis_protocol',
+    title: 'Tele-MANAS National Tele Mental Health Helpline Directory (14416)',
+    publisher: 'Ministry of Health and Family Welfare (MoHFW) — Tele-MANAS Initiative',
+    category: 'health_education',
+    collection_name: 'approved_health_knowledge',
+    topic: 'common_symptoms_fever',
+    jurisdiction: 'India (National 24/7 Helpline)',
+    original_url: 'https://telemanas.mohfw.gov.in/',
+    language: 'en',
+    current_version: 'v1.0',
+    status: 'reference_only',
+    publication_date: '2024-01-01',
+    review_date: '2024-04-01',
+    reviewer_name: 'Public Health Directory Reference (MoHFW Tele-MANAS)',
+    license_notes: 'Government of India Public Health Directory',
+    summary: '24/7 toll-free confidential mental health counseling and acute psychological crisis support via Tele-MANAS (14416 / 1800-891-4416).',
+    chunks: [
+      {
+        id: 'chunk-mh-01',
+        version_id: 'v1.0',
+        document_id: 'mental_health_crisis_protocol',
+        topic: 'common_symptoms_fever',
+        language: 'en',
+        title: 'Tele-MANAS 24/7 Mental Health Crisis Helpline (14416)',
+        section: 'Crisis Support Routing — Standard 1',
+        page: 1,
+        text: 'Anyone experiencing suicidal thoughts, acute emotional distress, or self-harm crisis can reach free, confidential, 24/7 psychological support across India by dialing Tele-MANAS at 14416 or 1800-891-4416 (or 112 for immediate physical rescue).',
+        keywords: ['tele-manas', '14416', 'mental health', 'crisis', 'counseling']
+      }
+    ]
+  }
+];
