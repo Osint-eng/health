@@ -723,18 +723,34 @@ const llmRuntimeStatus: LlmRuntimeStatus = {
 };
 
 // Safety Evaluation Utilities
+// Self-test cases for safety gateways:
+// - "I want to die, what is the point" -> crisis (detectMentalHealthCrisis === true)
+// - "what is suicide prevention"        -> not crisis (detectMentalHealthCrisis === false)
+// - "Do I have Aadhaar for PM-JAY"      -> not blocked (detectDiagnosisOrDosageRequest === false)
+// - "Do I have dengue"                  -> blocked (detectDiagnosisOrDosageRequest === true)
+const FIRST_PERSON_CRISIS_PATTERNS: RegExp[] = [
+  /\bkill\s+myself\b/i,
+  /\bkill\s+me\b/i,
+  /\bend\s+my\s+life\b/i,
+  /\bwant\s+to\s+die\b/i,
+  /\bwanna\s+die\b/i,
+  /\bhurt\s+myself\b/i,
+  /\bcut\s+myself\b/i,
+  /\bhang\s+myself\b/i,
+  /\bdon'?t\s+want\s+to\s+live\b/i,
+  /\bdo\s+not\s+want\s+to\s+live\b/i,
+  /\bend\s+it\s+all\b/i,
+  /\bbetter\s+off\s+dead\b/i,
+  /\btake\s+my\s+own\s+life\b/i,
+  /\bnot\s+worth\s+living\b/i,
+  /\bno\s+reason\s+to\s+live\b/i,
+];
+
 const MENTAL_HEALTH_CRISIS_PATTERNS: RegExp[] = [
-  /\bkill myself\b/i,
+  ...FIRST_PERSON_CRISIS_PATTERNS,
   /\bsuicid(e|al)\b/i,
-  /\bend my life\b/i,
-  /\bwant to die\b/i,
-  /\bwanna die\b/i,
-  /\bhurt myself\b/i,
-  /\bcut myself\b/i,
-  /\bhang myself\b/i,
   /\bself[- ]harm\b/i,
-  /\bno reason to live\b/i,
-  /\boverdose on purpose\b/i,
+  /\boverdose\s+on\s+purpose\b/i,
 ];
 
 const TELUGU_MENTAL_HEALTH_KEYWORDS = [
@@ -749,12 +765,20 @@ const TELUGU_MENTAL_HEALTH_KEYWORDS = [
 function detectMentalHealthCrisis(query: string): boolean {
   const q = query.trim();
   if (!q) return false;
-  // Avoid triggering on purely educational questions like "what is suicide prevention" unless first-person distress
-  const isEducational = /\b(what is|meaning of|statistics|rate|prevention program|awareness)\b/i.test(q);
-  if (!isEducational && MENTAL_HEALTH_CRISIS_PATTERNS.some((re) => re.test(q))) {
+  if (FIRST_PERSON_CRISIS_PATTERNS.some((re) => re.test(q))) {
     return true;
   }
-  return TELUGU_MENTAL_HEALTH_KEYWORDS.some((kw) => q.includes(kw));
+  if (TELUGU_MENTAL_HEALTH_KEYWORDS.some((kw) => q.includes(kw))) {
+    return true;
+  }
+  // Treat as educational only when starting with a definition phrase and containing no first-person words
+  const isEducational =
+    /^\s*(?:what\s+is|what\s+are|define|meaning\s+of|explain)\b/i.test(q) &&
+    !/\b(?:i|my|me|myself|i'?m|want|feel)\b/i.test(q);
+  if (isEducational) {
+    return false;
+  }
+  return MENTAL_HEALTH_CRISIS_PATTERNS.some((re) => re.test(q));
 }
 
 const URGENT_ENGLISH_PATTERNS: RegExp[] = [
@@ -841,7 +865,7 @@ function detectUrgentSituation(query: string): boolean {
 
 const PROHIBITED_DIAGNOSIS_PATTERNS: RegExp[] = [
   /\bdiagnose\s+(?:me|my|this|him|her|us|the)\b/i,
-  /\b(?:what\s+(?:disease|illness|condition|infection)\s+do\s+i\s+have|do\s+i\s+have\s+[a-z]{3,})\b/i,
+  /\b(?:what\s+(?:disease|illness|condition|infection)\s+do\s+i\s+have|do\s+i\s+have\s+(?:dengue|malaria|diabetes|cancer|fever|infection|typhoid|tuberculosis|covid|hiv))\b/i,
   /\b(?:am\s+i\s+safe|is\s+(?:this|my)\s+symptom\s+dangerous)\b/i,
   /\bread\s+my\s+(?:mri|ct\s*scan|x-?ray|blood\s+report|lab\s+report|ecg)\b/i,
   /\b(?:prescribe(?:\s+me|\s+for|\s+a|\s+an|\s+some|\s+antibiotic|$)|write\s+(?:me\s+)?a\s+prescription|need\s+a\s+prescription)\b/i,
