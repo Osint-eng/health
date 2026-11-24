@@ -15,35 +15,29 @@ Arogya Voice is an evidence-disciplined, multilingual (English & Telugu) voice h
 
 ## 🚀 Quick Start & Run Commands
 
-You can run Arogya Voice with either **npm** or **bun**:
+Dependencies are pinned with **`bun.lock`**. Use **Bun** for lockfile-reproducible installs, or **npm** (resolves semver ranges in `package.json` since no `package-lock.json` is tracked):
 
-### Using npm (Node.js 20+)
+### Recommended: Using Bun (pinned via `bun.lock`)
 ```bash
-# 1. Install dependencies
-npm install
+# 1. Install pinned dependencies from bun.lock
+bun install --frozen-lockfile
 
 # 2. Configure environment
-# Copy the example environment file
 cp .env.example .env
 
-# 3. Start development server with Gemini API Key
-GEMINI_API_KEY="YOUR_GEMINI_API_KEY" npm run dev
-
-# 4. Production build & verification
-npm run build
-npm run lint
-```
-
-### Using bun
-```bash
-# 1. Install dependencies
-bun install
-
-# 2. Run full-stack dev server (Express + Vite)
+# 3. Start full-stack dev server (Express + Vite)
 GEMINI_API_KEY="YOUR_GEMINI_API_KEY" bun run dev
 
-# 3. Build for production
+# 4. Production build & type check
 bun run build
+bun run lint
+```
+
+### Alternative: Using npm (Node.js 20+)
+```bash
+# Note: only bun.lock is committed; npm install resolves package.json ranges directly
+npm install
+GEMINI_API_KEY="YOUR_GEMINI_API_KEY" npm run dev
 ```
 
 The application runs locally on **http://localhost:3000**.

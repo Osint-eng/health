@@ -48,27 +48,51 @@ const DATA_DIR = path.join(ROOT_DIR, 'data');
 const STORE_PATH = path.join(DATA_DIR, 'arogya_store.json');
 const WAL_PATH = path.join(DATA_DIR, 'messages_wal.ndjson');
 
-// Production Rate Limiter (Token Bucket / Sliding Window per IP)
+// Production Rate Limiter (Sliding Window per non-spoofable remote IP, with periodic cleanup)
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
-function rateLimiter(req: Request, res: Response, next: () => void) {
-  // Allow static assets, health checks, and public library reads freely
-  if (req.method === 'GET' && !req.path.startsWith('/api/conversations')) {
+const RATE_LIMIT_WINDOW_MS = 60000;
+const RATE_LIMIT_MAX_REQUESTS = 100;
+
+function pruneExpiredRateLimits(now = Date.now()) {
+  for (const [key, entry] of rateLimitMap.entries()) {
+    if (now > entry.resetTime) {
+      rateLimitMap.delete(key);
+    }
+  }
+}
+
+setInterval(() => pruneExpiredRateLimits(), RATE_LIMIT_WINDOW_MS).unref();
+
+function rateLimiter(req: Request, res: Response, next: NextFunction) {
+  // Inside app.use('/api', ...), req.path has NO '/api' prefix.
+  // Allow only safe read-only public catalog/session-init GETs without throttling;
+  // rate-limit /conversations, /admin/*, /tools/*, /health?probe=1, and all mutations.
+  const isSafePublicGet =
+    req.method === 'GET' &&
+    (req.path.startsWith('/library') ||
+      req.path.startsWith('/sources') ||
+      req.path === '/emergency/contacts' ||
+      req.path === '/me' ||
+      (req.path === '/health' && req.query.probe !== '1' && req.query.live !== '1'));
+  if (isSafePublicGet) {
     return next();
   }
-  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
-  const ipKey = String(Array.isArray(ip) ? ip[0] : ip);
+
+  // Do not trust spoofable X-Forwarded-For headers; use the socket peer / Express req.ip
+  const ipKey = String(req.socket.remoteAddress || req.ip || '127.0.0.1');
   const now = Date.now();
-  const limitWindow = 60000; // 1 minute window
-  const maxRequests = 100;
+  if (rateLimitMap.size > 1000) {
+    pruneExpiredRateLimits(now);
+  }
 
   const entry = rateLimitMap.get(ipKey);
   if (!entry || now > entry.resetTime) {
-    rateLimitMap.set(ipKey, { count: 1, resetTime: now + limitWindow });
+    rateLimitMap.set(ipKey, { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS });
     return next();
   }
 
   entry.count++;
-  if (entry.count > maxRequests) {
+  if (entry.count > RATE_LIMIT_MAX_REQUESTS) {
     res.status(429).json({
       error: 'Too many requests. Please wait a moment before sending another query.',
       retry_after_seconds: Math.ceil((entry.resetTime - now) / 1000),
@@ -78,6 +102,15 @@ function rateLimiter(req: Request, res: Response, next: () => void) {
   next();
 }
 app.use('/api', rateLimiter);
+
+function createUniqueId(prefix: string): string {
+  return `${prefix}_${crypto.randomUUID()}`;
+}
+
+function truncateWithEllipsis(input: string, maxLen: number): string {
+  const clean = input.trim();
+  return clean.length > maxLen ? `${clean.slice(0, maxLen).trimEnd()}...` : clean;
+}
 
 // In-memory cryptographic key for signing anonymous session cookies & admin session Bearer tokens
 const SESSION_SIGNING_SECRET = process.env.SESSION_SECRET?.trim() || crypto.randomBytes(32).toString('hex');
@@ -124,28 +157,7 @@ const db: DBStore = {
   conversations: new Map<string, Conversation>(),
   documents: [...REVIEWED_DOCUMENTS],
   adminCredential: null,
-  feedbackReports: [
-    {
-      id: 'report-demo-1',
-      message_id: 'msg-seed-1',
-      question_text: 'Can I take 500mg Metformin without seeing a doctor?',
-      answer_text: 'Arogya Voice cannot prescribe dosages or confirm personal medication changes. Please consult a doctor.',
-      category: 'unsupported_claim',
-      user_comment: 'User asked for dosage verification; system correctly abstained and suggested doctor consult.',
-      status: 'resolved',
-      created_at: new Date(Date.now() - 86400000 * 2).toISOString(),
-    },
-    {
-      id: 'report-demo-2',
-      message_id: 'msg-seed-2',
-      question_text: 'Is cow milk okay for a 3-month-old infant?',
-      answer_text: 'WHO & UNICEF guidelines recommend exclusive breastfeeding for the first 6 months without animal milk or formula unless medically advised.',
-      category: 'wrong_retrieval',
-      user_comment: 'Verified citation chunk-mat-01 matches WHO Infant Nutrition chapter 2.',
-      status: 'regression_test_added',
-      created_at: new Date(Date.now() - 86400000 * 1).toISOString(),
-    }
-  ],
+  feedbackReports: [],
   ingestionJobs: [
     {
       id: 'job-101',
@@ -1707,22 +1719,78 @@ app.get('/api/me', (req: Request, res: Response) => {
 });
 
 // 2. PATCH /api/me/preferences
+const ALLOWED_PREFERENCE_KEYS = new Set([
+  'language',
+  'playback_speed',
+  'text_size',
+  'save_history',
+  'retain_audio',
+  'contribute_recordings',
+  'speech_engine',
+]);
+
 app.patch('/api/me/preferences', (req: Request, res: Response) => {
   const ctx = resolveSessionContext(req, res, true)!;
   const current = getSessionPreferences(ctx.sessionId);
-  const body = req.body || {};
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+    res.status(400).json({ error: 'Request body must be a JSON object.' });
+    return;
+  }
+  const body = req.body as Record<string, unknown>;
+  const unknownKeys = Object.keys(body).filter((k) => !ALLOWED_PREFERENCE_KEYS.has(k));
+  if (unknownKeys.length > 0) {
+    res.status(400).json({ error: `Unknown preference key(s): ${unknownKeys.join(', ')}` });
+    return;
+  }
+
   const sanitizedUpdates: Partial<UserPreferences> = {};
-  if (body.language === 'en' || body.language === 'te') sanitizedUpdates.language = body.language;
-  if (typeof body.playback_speed === 'number' && [0.75, 1, 1.25].includes(body.playback_speed)) {
+  if ('language' in body) {
+    if (body.language !== 'en' && body.language !== 'te') {
+      res.status(400).json({ error: 'Invalid language. Must be "en" or "te".' });
+      return;
+    }
+    sanitizedUpdates.language = body.language;
+  }
+  if ('playback_speed' in body) {
+    if (typeof body.playback_speed !== 'number' || ![0.75, 1, 1.25].includes(body.playback_speed)) {
+      res.status(400).json({ error: 'Invalid playback_speed. Must be 0.75, 1, or 1.25.' });
+      return;
+    }
     sanitizedUpdates.playback_speed = body.playback_speed;
   }
-  if (body.text_size === 'normal' || body.text_size === 'large' || body.text_size === 'extra_large') {
+  if ('text_size' in body) {
+    if (body.text_size !== 'normal' && body.text_size !== 'large' && body.text_size !== 'extra_large') {
+      res.status(400).json({ error: 'Invalid text_size. Must be "normal", "large", or "extra_large".' });
+      return;
+    }
     sanitizedUpdates.text_size = body.text_size;
   }
-  if (typeof body.save_history === 'boolean') sanitizedUpdates.save_history = body.save_history;
-  if (typeof body.retain_audio === 'boolean') sanitizedUpdates.retain_audio = body.retain_audio;
-  if (typeof body.contribute_recordings === 'boolean') sanitizedUpdates.contribute_recordings = body.contribute_recordings;
-  if (body.speech_engine === 'browser_native' || body.speech_engine === 'gemini_tts') {
+  if ('save_history' in body) {
+    if (typeof body.save_history !== 'boolean') {
+      res.status(400).json({ error: 'save_history must be a boolean.' });
+      return;
+    }
+    sanitizedUpdates.save_history = body.save_history;
+  }
+  if ('retain_audio' in body) {
+    if (typeof body.retain_audio !== 'boolean') {
+      res.status(400).json({ error: 'retain_audio must be a boolean.' });
+      return;
+    }
+    sanitizedUpdates.retain_audio = body.retain_audio;
+  }
+  if ('contribute_recordings' in body) {
+    if (typeof body.contribute_recordings !== 'boolean') {
+      res.status(400).json({ error: 'contribute_recordings must be a boolean.' });
+      return;
+    }
+    sanitizedUpdates.contribute_recordings = body.contribute_recordings;
+  }
+  if ('speech_engine' in body) {
+    if (body.speech_engine !== 'browser_native' && body.speech_engine !== 'gemini_tts') {
+      res.status(400).json({ error: 'Invalid speech_engine. Must be "browser_native" or "gemini_tts".' });
+      return;
+    }
     sanitizedUpdates.speech_engine = body.speech_engine;
   }
 
@@ -1739,11 +1807,11 @@ app.post('/api/conversations', (req: Request, res: Response) => {
   const { title, topic, language } = req.body || {};
   const safeTitle =
     typeof title === 'string' && title.trim()
-      ? title.trim().slice(0, 120)
+      ? truncateWithEllipsis(title.trim(), 120)
       : language === 'te'
       ? 'కొత్త సంభాషణ'
       : 'New Health Inquiry';
-  const id = 'conv_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+  const id = createUniqueId('conv');
   const newConv: Conversation = {
     id,
     session_id: ctx.sessionId,
@@ -1836,7 +1904,7 @@ async function evaluateAndGenerateAnswer(
       llmProvider: 'none',
       llmError: null,
       message: {
-        id: 'msg_a_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        id: createUniqueId('msg_a'),
         conversation_id: conversationId,
         role: 'assistant',
         text: isTe
@@ -1893,7 +1961,7 @@ async function evaluateAndGenerateAnswer(
       llmProvider: 'none',
       llmError: null,
       message: {
-        id: 'msg_a_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        id: createUniqueId('msg_a'),
         conversation_id: conversationId,
         role: 'assistant',
         text: isTe
@@ -1967,7 +2035,7 @@ async function evaluateAndGenerateAnswer(
       llmProvider: 'none',
       llmError: null,
       message: {
-        id: 'msg_a_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        id: createUniqueId('msg_a'),
         conversation_id: conversationId,
         role: 'assistant',
         text: isTe
@@ -2022,7 +2090,7 @@ async function evaluateAndGenerateAnswer(
       llmProvider: 'none',
       llmError: null,
       message: {
-        id: 'msg_a_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        id: createUniqueId('msg_a'),
         conversation_id: conversationId,
         role: 'assistant',
         text: isTe
@@ -2315,7 +2383,7 @@ Return valid JSON only.`;
       llmProvider: usedLlm ? activeBrain : 'none',
       llmError,
       message: {
-        id: 'msg_a_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+        id: createUniqueId('msg_a'),
         conversation_id: conversationId,
         role: 'assistant',
         text: shortAnswer || (isTe
@@ -2437,7 +2505,7 @@ Return valid JSON only.`;
     llmProvider: usedLlm ? activeBrain : 'none',
     llmError,
     message: {
-      id: 'msg_a_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+      id: createUniqueId('msg_a'),
       conversation_id: conversationId,
       role: 'assistant',
       text: shortAnswer,
@@ -2494,7 +2562,7 @@ app.post('/api/conversations/:id/messages', async (req: Request, res: Response) 
     conv = {
       id,
       session_id: ctx.sessionId,
-      title: text.substring(0, 40) + '...',
+      title: truncateWithEllipsis(text, 40),
       language,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -2505,7 +2573,7 @@ app.post('/api/conversations/:id/messages', async (req: Request, res: Response) 
   }
 
   const userMsg: Message = {
-    id: 'msg_u_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+    id: createUniqueId('msg_u'),
     conversation_id: id,
     role: 'user',
     text,
@@ -2561,7 +2629,7 @@ app.post('/api/messages/:id/feedback', (req: Request, res: Response) => {
   const { category, user_comment, question_text = '', answer_text = '' } = req.body || {};
 
   const newReport: FeedbackReport = {
-    id: 'report_' + Date.now(),
+    id: createUniqueId('report'),
     message_id: String(id).slice(0, 64),
     question_text: String(question_text || '').slice(0, MAX_MESSAGE_LENGTH),
     answer_text: String(answer_text || '').slice(0, 2000),
@@ -2711,25 +2779,88 @@ app.get('/api/tools/config', requireAdminAuth, async (_req: Request, res: Respon
 });
 
 // PATCH /api/tools/config (Protected with ADMIN_TOKEN)
+const ALLOWED_TOOL_CONFIG_KEYS = new Set([
+  'brain_provider',
+  'hearing_provider',
+  'speaking_provider',
+  'ollama_endpoint',
+  'ollama_model',
+  'gemini_model',
+]);
+
 app.patch('/api/tools/config', requireAdminAuth, (req: Request, res: Response) => {
-  const body = req.body || {};
+  if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
+    res.status(400).json({ error: 'Request body must be a JSON object.' });
+    return;
+  }
+  const body = req.body as Record<string, unknown>;
+  const unknownKeys = Object.keys(body).filter((k) => !ALLOWED_TOOL_CONFIG_KEYS.has(k));
+  if (unknownKeys.length > 0) {
+    res.status(400).json({ error: `Unknown configuration key(s): ${unknownKeys.join(', ')}` });
+    return;
+  }
+
   const allowed: Partial<ToolEngineConfig> = {};
-  if (body.brain_provider === 'gemini' || body.brain_provider === 'ollama') {
+  if ('brain_provider' in body) {
+    if (body.brain_provider !== 'gemini' && body.brain_provider !== 'ollama') {
+      res.status(400).json({ error: 'Invalid brain_provider. Must be "gemini" or "ollama".' });
+      return;
+    }
     allowed.brain_provider = body.brain_provider;
   }
-  if (body.hearing_provider === 'browser' || body.hearing_provider === 'gemini_transcribe') {
+  if ('hearing_provider' in body) {
+    if (body.hearing_provider !== 'browser' && body.hearing_provider !== 'gemini_transcribe') {
+      res.status(400).json({ error: 'Invalid hearing_provider. Must be "browser" or "gemini_transcribe".' });
+      return;
+    }
     allowed.hearing_provider = body.hearing_provider;
   }
-  if (body.speaking_provider === 'browser' || body.speaking_provider === 'gemini_tts') {
+  if ('speaking_provider' in body) {
+    if (body.speaking_provider !== 'browser' && body.speaking_provider !== 'gemini_tts') {
+      res.status(400).json({ error: 'Invalid speaking_provider. Must be "browser" or "gemini_tts".' });
+      return;
+    }
     allowed.speaking_provider = body.speaking_provider;
   }
-  if (typeof body.ollama_endpoint === 'string' && body.ollama_endpoint.trim()) {
+  if ('ollama_endpoint' in body) {
+    if (typeof body.ollama_endpoint !== 'string' || !body.ollama_endpoint.trim()) {
+      res.status(400).json({ error: 'ollama_endpoint must be a non-empty local HTTP URL.' });
+      return;
+    }
+    let isValidLocalEndpoint = false;
+    try {
+      const parsed = new URL(body.ollama_endpoint.trim());
+      const host = parsed.hostname.toLowerCase();
+      const port = parsed.port ? Number(parsed.port) : 11434;
+      isValidLocalEndpoint =
+        parsed.protocol === 'http:' &&
+        !parsed.username &&
+        !parsed.password &&
+        (host === '127.0.0.1' || host === 'localhost') &&
+        Number.isInteger(port) &&
+        port >= 1 &&
+        port <= 65535;
+    } catch {
+      isValidLocalEndpoint = false;
+    }
+    if (!isValidLocalEndpoint) {
+      res.status(400).json({ error: 'ollama_endpoint must be a valid http://127.0.0.1:<port> or http://localhost:<port> URL.' });
+      return;
+    }
     allowed.ollama_endpoint = sanitizeLocalOllamaEndpoint(body.ollama_endpoint);
   }
-  if (typeof body.ollama_model === 'string' && body.ollama_model.trim() && body.ollama_model.length <= 64) {
+  if ('ollama_model' in body) {
+    if (typeof body.ollama_model !== 'string' || !body.ollama_model.trim() || body.ollama_model.trim().length > 64) {
+      res.status(400).json({ error: 'ollama_model must be a non-empty string (<= 64 chars).' });
+      return;
+    }
     allowed.ollama_model = body.ollama_model.trim();
   }
-  if (body.gemini_model === 'gemini-4-hydrogen' || body.gemini_model === 'gemini-3.1-flash-lite') {
+  if ('gemini_model' in body) {
+    if (body.gemini_model !== 'gemini-4-hydrogen' && body.gemini_model !== 'gemini-3.1-flash-lite') {
+      res.status(400).json({ error: 'Invalid gemini_model. Must be "gemini-4-hydrogen" or "gemini-3.1-flash-lite".' });
+      return;
+    }
     allowed.gemini_model = body.gemini_model;
   }
 
@@ -3292,6 +3423,58 @@ app.post('/api/demo/reset', requireAdminAuth, (req: Request, res: Response) => {
         ],
         audio_status: 'ready',
         created_at: new Date(Date.now() - 3400000).toISOString(),
+      },
+      {
+        id: 'msg_u_seed_2',
+        conversation_id: seedConvId,
+        role: 'user',
+        text: 'Can I take 500mg Metformin without seeing a doctor?',
+        language: 'en',
+        status: 'needs_professional',
+        citations: [],
+        created_at: new Date(Date.now() - 3200000).toISOString(),
+      },
+      {
+        id: 'msg_a_seed_2',
+        conversation_id: seedConvId,
+        role: 'assistant',
+        text: 'Arogya Voice cannot prescribe dosages or confirm personal medication changes. Please consult a licensed physician.',
+        spoken_text: 'Arogya Voice cannot prescribe dosages or confirm personal medication changes. Please consult a licensed physician.',
+        language: 'en',
+        status: 'needs_professional',
+        evidence_strength: 'None',
+        evidence_support_summary: 'Clinical safety abstention rule: personal dosing and prescription decisions are withheld.',
+        limitations: 'Arogya Voice strictly abstains from calculating personalized drug dosages or recommending medications.',
+        consultation_recommendation: 'Consult a qualified doctor or pharmacist before starting or changing Metformin.',
+        citations: [],
+        audio_status: 'ready',
+        created_at: new Date(Date.now() - 3100000).toISOString(),
+      },
+      {
+        id: 'msg_u_seed_3',
+        conversation_id: seedConvId,
+        role: 'user',
+        text: 'What are WHO Child Growth Standards used for?',
+        language: 'en',
+        status: 'supported_by_reviewed_sources',
+        citations: [],
+        created_at: new Date(Date.now() - 3000000).toISOString(),
+      },
+      {
+        id: 'msg_a_seed_3',
+        conversation_id: seedConvId,
+        role: 'assistant',
+        text: 'WHO Child Growth Standards provide percentile and z-score screening curves to monitor infant and child growth over multiple visits.',
+        spoken_text: 'WHO Child Growth Standards provide percentile and z-score screening curves to monitor infant and child growth over multiple visits.',
+        language: 'en',
+        status: 'supported_by_reviewed_sources',
+        evidence_strength: 'Strong',
+        evidence_support_summary: 'Supported by WHO Child Growth Standards (Chapter 3, p. 14).',
+        limitations: 'Single measurements are screening indicators only and require pediatric follow-up.',
+        consultation_recommendation: 'Discuss growth chart trends with a pediatrician or community health worker.',
+        citations: [],
+        audio_status: 'ready',
+        created_at: new Date(Date.now() - 2900000).toISOString(),
       }
     ]
   };
@@ -3301,13 +3484,13 @@ app.post('/api/demo/reset', requireAdminAuth, (req: Request, res: Response) => {
   db.documents = [...REVIEWED_DOCUMENTS];
   chunkVectorCache.clear();
 
-  // Restore feedback reports
+  // Restore feedback reports referencing real messages in seedConv
   db.feedbackReports = [
     {
       id: 'report-demo-1',
-      message_id: 'msg_a_seed_1',
+      message_id: 'msg_a_seed_2',
       question_text: 'Can I take 500mg Metformin without seeing a doctor?',
-      answer_text: 'Arogya Voice cannot prescribe dosages or confirm personal medication changes. Please consult a doctor.',
+      answer_text: 'Arogya Voice cannot prescribe dosages or confirm personal medication changes. Please consult a licensed physician.',
       category: 'unsupported_claim',
       user_comment: 'User asked for dosage verification; system correctly abstained and suggested doctor consult.',
       status: 'resolved',
@@ -3315,11 +3498,11 @@ app.post('/api/demo/reset', requireAdminAuth, (req: Request, res: Response) => {
     },
     {
       id: 'report-demo-2',
-      message_id: 'msg_a_seed_1',
-      question_text: 'Is cow milk okay for a 3-month-old infant?',
-      answer_text: 'WHO & UNICEF guidelines recommend exclusive breastfeeding for the first 6 months without animal milk or formula unless medically advised.',
+      message_id: 'msg_a_seed_3',
+      question_text: 'What are WHO Child Growth Standards used for?',
+      answer_text: 'WHO Child Growth Standards provide percentile and z-score screening curves to monitor infant and child growth over multiple visits.',
       category: 'wrong_retrieval',
-      user_comment: 'Verified citation chunk-mat-01 matches WHO Infant Nutrition chapter 2.',
+      user_comment: 'Verified citation matches WHO Child Growth Standards Chapter 3.',
       status: 'regression_test_added',
       created_at: new Date(Date.now() - 86400000 * 1).toISOString(),
     }
@@ -3380,7 +3563,7 @@ app.post('/api/admin/documents', requireAdminAuth, (req: Request, res: Response)
     return;
   }
 
-  const docId = 'doc_' + Date.now();
+  const docId = createUniqueId('doc');
   const textBody = rawBody;
 
   // Paragraph Chunk Generator for In-Memory Hybrid Index
@@ -3420,14 +3603,14 @@ app.post('/api/admin/documents', requireAdminAuth, (req: Request, res: Response)
     review_date: new Date().toISOString().split('T')[0],
     reviewer_name: 'Pending External Clinical Review',
     license_notes: 'Submitted by Admin Operator — Pending Verification',
-    summary: textBody.substring(0, 180) + '...',
+    summary: truncateWithEllipsis(textBody, 180),
     chunks,
   };
 
   db.documents.push(newDoc);
 
   const job: IngestionJob = {
-    id: 'job_' + Date.now(),
+    id: createUniqueId('job'),
     document_title: newDoc.title,
     publisher: newDoc.publisher,
     status: 'needs_review',
@@ -3514,9 +3697,32 @@ app.post('/api/admin/reviews/:id/action', requireAdminAuth, (req: Request, res: 
   res.json({ success: true, report });
 });
 
-// Return JSON 404 for any unmatched /api/* route instead of falling through to SPA HTML
-app.all('/api/*', (_req: Request, res: Response) => {
+// Return JSON 404 for any unmatched /api or /api/* route instead of falling through to SPA HTML
+app.use('/api', (_req: Request, res: Response) => {
   res.status(404).json({ error: 'API endpoint not found' });
+});
+
+// Express JSON error handler (handles malformed JSON, oversized payloads, and API errors as JSON)
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+  if (res.headersSent) {
+    return next(err);
+  }
+  if (err?.type === 'entity.parse.failed' || (err instanceof SyntaxError && 'body' in err)) {
+    res.status(400).json({ error: 'Malformed JSON request body' });
+    return;
+  }
+  if (err?.type === 'entity.too.large' || err?.status === 413 || err?.statusCode === 413) {
+    res.status(413).json({ error: 'Request payload too large' });
+    return;
+  }
+  if (req.originalUrl.startsWith('/api') || req.path.startsWith('/api')) {
+    const status = Number(err?.status || err?.statusCode) || 500;
+    res.status(status).json({
+      error: status < 500 ? String(err?.message || 'Bad request') : 'Internal server error',
+    });
+    return;
+  }
+  next(err);
 });
 
 /* ==========================================================================

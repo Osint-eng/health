@@ -213,8 +213,10 @@ export const AskPage: React.FC<AskPageProps> = ({
 
     if (!currentConversation) {
       try {
+        const autoTitle =
+          textToSend.length > 36 ? textToSend.substring(0, 36).trimEnd() + '...' : textToSend;
         const newConv = await api.createConversation(
-          textToSend.substring(0, 36) + '...',
+          autoTitle,
           'general',
           language
         );
