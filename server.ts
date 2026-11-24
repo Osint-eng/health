@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import {
   REVIEWED_DOCUMENTS,
   TELUGU_APPROVED_PASSAGES,
@@ -36,12 +36,16 @@ const ROOT_DIR = path.basename(__dirname) === 'dist' ? path.resolve(__dirname, '
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const MAX_MESSAGE_LENGTH = 1000;
+const MAX_ADMIN_DOC_LENGTH = 50000;
+const DEFAULT_GEMINI_MODEL = 'gemini-4-hydrogen';
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '100kb' }));
 
-// Persistent Disk Storage Path
+// Persistent Disk Storage Paths (Atomic Snapshot + Append-Only Message WAL)
 const DATA_DIR = path.join(ROOT_DIR, 'data');
 const STORE_PATH = path.join(DATA_DIR, 'arogya_store.json');
+const WAL_PATH = path.join(DATA_DIR, 'messages_wal.ndjson');
 
 // Production Rate Limiter (Token Bucket / Sliding Window per IP)
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
@@ -212,13 +216,69 @@ const db: DBStore = {
 };
 
 // ============================================================================
-// PERSISTENT DISK STORAGE (Survives Server Restarts)
+// CRASH-SAFE ATOMIC DISK PERSISTENCE + APPEND-ONLY MESSAGE WAL
 // ============================================================================
-function saveStoreToDisk() {
+let snapshotSaveTimer: NodeJS.Timeout | null = null;
+const BUILTIN_DOC_BY_ID = new Map(REVIEWED_DOCUMENTS.map((d) => [d.id, d]));
+
+function writeFileAtomicSync(targetPath: string, data: string): void {
+  const dir = path.dirname(targetPath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  const tmpPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
+  let fd: number | null = null;
   try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
+    fd = fs.openSync(tmpPath, 'w', 0o600);
+    fs.writeSync(fd, data, 0, 'utf-8');
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = null;
+    fs.renameSync(tmpPath, targetPath);
+  } catch (err) {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch {}
     }
+    if (fs.existsSync(tmpPath)) {
+      try { fs.unlinkSync(tmpPath); } catch {}
+    }
+    throw err;
+  }
+}
+
+function buildCompactDocumentsSnapshot(): {
+  customDocuments: DocumentSource[];
+  documentOverrides: Record<string, Partial<DocumentSource>>;
+} {
+  const customDocuments: DocumentSource[] = [];
+  const documentOverrides: Record<string, Partial<DocumentSource>> = {};
+
+  for (const doc of db.documents) {
+    const builtin = BUILTIN_DOC_BY_ID.get(doc.id);
+    if (!builtin) {
+      customDocuments.push(doc);
+    } else if (
+      doc.status !== builtin.status ||
+      doc.reviewer_name !== builtin.reviewer_name ||
+      doc.review_date !== builtin.review_date
+    ) {
+      documentOverrides[doc.id] = {
+        status: doc.status,
+        reviewer_name: doc.reviewer_name,
+        review_date: doc.review_date,
+      };
+    }
+  }
+  return { customDocuments, documentOverrides };
+}
+
+function saveStoreToDisk() {
+  if (snapshotSaveTimer) {
+    clearTimeout(snapshotSaveTimer);
+    snapshotSaveTimer = null;
+  }
+  try {
+    const { customDocuments, documentOverrides } = buildCompactDocumentsSnapshot();
     const serialized = {
       preferencesBySession: Object.fromEntries(db.preferencesBySession.entries()),
       toolConfig: db.toolConfig,
@@ -226,19 +286,107 @@ function saveStoreToDisk() {
       feedbackReports: db.feedbackReports,
       ingestionJobs: db.ingestionJobs,
       regressionTests: db.regressionTests,
-      documents: db.documents,
+      customDocuments,
+      documentOverrides,
       adminCredential: db.adminCredential,
       last_saved_at: new Date().toISOString(),
     };
-    fs.writeFileSync(STORE_PATH, JSON.stringify(serialized, null, 2), 'utf-8');
+    writeFileAtomicSync(STORE_PATH, JSON.stringify(serialized, null, 2));
+    // Truncate WAL atomically after snapshot checkpoint succeeds
+    if (fs.existsSync(WAL_PATH)) {
+      writeFileAtomicSync(WAL_PATH, '');
+    }
   } catch (err) {
-    console.error('[Store] Failed to persist data to disk:', err);
+    console.error('[Store] Failed atomic disk snapshot:', err);
+  }
+}
+
+function appendMessageDeltaToWal(conv: Conversation, newMessages: Message[]) {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    const entry = JSON.stringify({
+      type: 'append_messages',
+      conversation: {
+        id: conv.id,
+        session_id: conv.session_id,
+        title: conv.title,
+        topic: conv.topic,
+        language: conv.language,
+        created_at: conv.created_at,
+        updated_at: conv.updated_at,
+        is_guest: conv.is_guest,
+      },
+      messages: newMessages,
+    });
+    fs.appendFileSync(WAL_PATH, entry + '\n', 'utf-8');
+  } catch (err) {
+    console.error('[Store] Failed appending message delta to WAL:', err);
+  }
+  if (!snapshotSaveTimer) {
+    snapshotSaveTimer = setTimeout(() => {
+      snapshotSaveTimer = null;
+      saveStoreToDisk();
+    }, 1500);
+  }
+}
+
+function cleanupStaleTempFiles() {
+  try {
+    if (!fs.existsSync(DATA_DIR)) return;
+    for (const file of fs.readdirSync(DATA_DIR)) {
+      if (file.endsWith('.tmp')) {
+        try { fs.unlinkSync(path.join(DATA_DIR, file)); } catch {}
+      }
+    }
+  } catch {}
+}
+
+function replayMessageWal() {
+  if (!fs.existsSync(WAL_PATH)) return;
+  try {
+    const walText = fs.readFileSync(WAL_PATH, 'utf-8');
+    if (!walText.trim()) return;
+    let replayed = 0;
+    for (const line of walText.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const entry = JSON.parse(line);
+        if (entry?.type === 'append_messages' && entry.conversation?.id && entry.conversation?.session_id) {
+          let conv = db.conversations.get(entry.conversation.id);
+          if (!conv) {
+            const created: Conversation = { ...entry.conversation, messages: [] };
+            db.conversations.set(created.id, created);
+            conv = created;
+          }
+          conv.updated_at = entry.conversation.updated_at || conv.updated_at;
+          const existingIds = new Set(conv.messages.map((m) => m.id));
+          for (const msg of entry.messages || []) {
+            if (msg?.id && !existingIds.has(msg.id)) {
+              conv.messages.push(msg);
+              existingIds.add(msg.id);
+              replayed++;
+            }
+          }
+        }
+      } catch {
+        // Ignore trailing partial line after an abrupt crash
+      }
+    }
+    if (replayed > 0) {
+      console.log(`[Store] Replayed ${replayed} WAL messages into memory; flushing atomic checkpoint.`);
+      saveStoreToDisk();
+    }
+  } catch (err) {
+    console.warn('[Store] Failed replaying message WAL:', err);
   }
 }
 
 function loadStoreFromDisk() {
-  try {
-    if (fs.existsSync(STORE_PATH)) {
+  cleanupStaleTempFiles();
+  if (fs.existsSync(STORE_PATH)) {
+    try {
       const raw = fs.readFileSync(STORE_PATH, 'utf-8');
       const parsed = JSON.parse(raw);
       if (parsed.preferencesBySession && typeof parsed.preferencesBySession === 'object') {
@@ -253,7 +401,6 @@ function loadStoreFromDisk() {
       if (Array.isArray(parsed.conversations)) {
         db.conversations.clear();
         for (const c of parsed.conversations) {
-          // Only retain conversations explicitly scoped to a session (drops legacy unowned global entries)
           if (c && typeof c.session_id === 'string' && c.session_id.length > 0) {
             db.conversations.set(c.id, c);
           }
@@ -262,24 +409,58 @@ function loadStoreFromDisk() {
       if (Array.isArray(parsed.feedbackReports)) db.feedbackReports = parsed.feedbackReports;
       if (Array.isArray(parsed.ingestionJobs)) db.ingestionJobs = parsed.ingestionJobs;
       if (Array.isArray(parsed.regressionTests)) db.regressionTests = parsed.regressionTests;
-      if (Array.isArray(parsed.documents) && parsed.documents.length > 0) {
+
+      // Support both compact (customDocuments + overrides) and legacy full documents snapshots
+      if (Array.isArray(parsed.customDocuments) || parsed.documentOverrides) {
+        const overrides = parsed.documentOverrides || {};
+        db.documents = REVIEWED_DOCUMENTS.map((d) =>
+          overrides[d.id] ? { ...d, ...overrides[d.id] } : { ...d }
+        );
+        if (Array.isArray(parsed.customDocuments)) {
+          for (const cd of parsed.customDocuments) {
+            if (cd?.id && !BUILTIN_DOC_BY_ID.has(cd.id)) {
+              db.documents.push(cd);
+            }
+          }
+        }
+      } else if (Array.isArray(parsed.documents) && parsed.documents.length > 0) {
         db.documents = parsed.documents;
       }
+
       if (parsed.adminCredential?.salt && parsed.adminCredential?.hash) {
         db.adminCredential = parsed.adminCredential;
       }
-      console.log(`[Store] Loaded ${db.conversations.size} scoped conversations and ${db.documents.length} verified documents from disk.`);
-    } else {
-      saveStoreToDisk();
-      console.log('[Store] Initialized fresh disk persistence at data/arogya_store.json');
+      console.log(`[Store] Loaded ${db.conversations.size} scoped conversations and ${db.documents.length} documents from disk.`);
+    } catch (err) {
+      // Never silently clobber a corrupted store with seed data; quarantine backup first
+      const backupPath = `${STORE_PATH}.corrupt.${Date.now()}.bak`;
+      try {
+        fs.renameSync(STORE_PATH, backupPath);
+        console.error(`[Store] Corrupt store backed up to ${backupPath}; starting clean state:`, err);
+      } catch (backupErr) {
+        console.error('[Store] Store file unreadable and backup failed:', backupErr);
+      }
     }
-  } catch (err) {
-    console.warn('[Store] Could not load from disk, using seed store:', err);
+  } else {
+    saveStoreToDisk();
+    console.log('[Store] Initialized fresh atomic store at data/arogya_store.json');
   }
+
+  replayMessageWal();
 }
 
 // Load persisted state on startup
 loadStoreFromDisk();
+
+// Flush pending debounced snapshots cleanly on shutdown
+for (const sig of ['SIGINT', 'SIGTERM'] as const) {
+  process.on(sig, () => {
+    if (snapshotSaveTimer) {
+      saveStoreToDisk();
+    }
+    process.exit(0);
+  });
+}
 
 // ============================================================================
 // SESSION SCOPING & ADMIN AUTHENTICATION HELPERS
@@ -440,6 +621,22 @@ if (process.env.GEMINI_API_KEY) {
   });
 }
 
+interface LlmRuntimeStatus {
+  configured: boolean;
+  model: string;
+  working: boolean | null;
+  last_checked_at: string | null;
+  last_error: string | null;
+}
+
+const llmRuntimeStatus: LlmRuntimeStatus = {
+  configured: Boolean(aiClient),
+  model: DEFAULT_GEMINI_MODEL,
+  working: aiClient ? null : false,
+  last_checked_at: null,
+  last_error: aiClient ? null : 'GEMINI_API_KEY is not configured on the server.',
+};
+
 // Safety Evaluation Utilities
 const MENTAL_HEALTH_CRISIS_PATTERNS: RegExp[] = [
   /\bkill myself\b/i,
@@ -593,26 +790,252 @@ function detectDiagnosisOrDosageRequest(query: string): boolean {
 }
 
 // ============================================================================
-// IN-MEMORY 1024-DIM DENSE VECTOR RETRIEVAL ENGINE (Chroma/BGE-M3 Compatible Schema)
+// IN-MEMORY HYBRID RETRIEVAL ENGINE (1024-Dim Subword Vector + Synonym Lexical)
 // ============================================================================
 const VECTOR_DIM = 1024;
 const chunkVectorCache = new Map<string, Float32Array>();
 
+const RETRIEVAL_STOPWORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'but', 'if', 'in', 'on', 'at', 'to', 'for', 'of', 'by', 'with',
+  'from', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does',
+  'did', 'can', 'could', 'should', 'would', 'will', 'may', 'might', 'must', 'what', 'when', 'where',
+  'which', 'who', 'why', 'how', 'my', 'your', 'our', 'their', 'this', 'that', 'these', 'those',
+  'i', 'me', 'we', 'you', 'they', 'it', 'its', 'about', 'tell', 'explain', 'give', 'please', 'some',
+  'any', 'all', 'get', 'make', 'need', 'want', 'know', 'someone', 'anyone', 'person', 'people'
+]);
+
+const ENGLISH_SYNONYM_MAP: Record<string, string[]> = {
+  kid: ['child', 'infant', 'pediatric'],
+  kids: ['child', 'children', 'pediatric'],
+  toddler: ['child', 'infant', 'growth'],
+  baby: ['infant', 'newborn', 'child'],
+  newborn: ['infant', 'baby', 'breastfeeding'],
+  growing: ['growth', 'standards', 'percentiles', 'z-score'],
+  height: ['length', 'stunting', 'growth'],
+  weight: ['wasting', 'underweight', 'growth'],
+  underweight: ['wasting', 'malnutrition', 'z-score'],
+  skinny: ['wasting', 'malnutrition', 'growth'],
+  short: ['stunting', 'height', 'growth'],
+  feverish: ['fever', 'temperature'],
+  temperature: ['fever', '38', '100.4'],
+  hot: ['fever', 'temperature'],
+  chills: ['malaria', 'rigors', 'fever'],
+  shivering: ['chills', 'hypoglycemia', 'malaria'],
+  throwing: ['vomiting'],
+  puking: ['vomiting'],
+  puke: ['vomiting'],
+  vomit: ['vomiting', 'severe dengue'],
+  stomach: ['abdominal', 'pain'],
+  tummy: ['abdominal', 'pain'],
+  belly: ['abdominal', 'pain'],
+  bleeding: ['bleeding', 'hemorrhage', 'gums', 'nose'],
+  tiredness: ['lethargy', 'fatigue'],
+  sleepy: ['drowsiness', 'lethargy'],
+  drowsy: ['drowsiness', 'lethargy'],
+  bp: ['blood', 'pressure', 'hypertension', '120/80', '140/90'],
+  salt: ['sodium', '5 grams', 'hypertension'],
+  salty: ['sodium', 'salt', 'hypertension'],
+  sugar: ['glucose', 'diabetes', 'hypoglycemia'],
+  diabetic: ['diabetes', 'glucose', 'diet'],
+  workout: ['exercise', 'physical', 'activity', 'walking'],
+  walk: ['walking', 'exercise', 'aerobic'],
+  insurance: ['pm-jay', 'ayushman', 'cashless', '5 lakh'],
+  enroll: ['apply', 'eligibility', 'ayushman', 'golden card'],
+  signup: ['apply', 'eligibility', 'ayushman', 'card'],
+  register: ['apply', 'abha', 'ayushman', 'card'],
+  eligible: ['eligibility', 'secc', '14555'],
+  qualify: ['eligibility', 'secc', 'pm-jay'],
+  papers: ['documents', 'aadhaar', 'ration card'],
+  id: ['aadhaar', 'abha', 'digital', 'photo id'],
+  nursing: ['breastfeeding', 'breast milk', 'infant'],
+  formula: ['breastfeeding', 'exclusive'],
+  hydration: ['fluids', 'water', 'oral rehydration'],
+  ors: ['oral', 'rehydration', 'fluids'],
+};
+
+const TELUGU_EXPANSION_MAP: Record<string, string[]> = {
+  // Mosquito-borne (Dengue & Malaria)
+  'డెంగ్యూ': ['dengue', 'severe dengue', 'fever', 'warning signs', 'vomiting', 'bleeding'],
+  'డెంగు': ['dengue', 'fever', 'warning signs'],
+  'మలేరియా': ['malaria', 'chills', 'rigors', 'mosquito', 'fever'],
+  'దోమ': ['mosquito', 'vector', 'aedes', 'anopheles', 'repellent', 'standing water'],
+  'దోమలు': ['mosquito', 'standing water', 'prevention', 'net'],
+  'దోమల': ['mosquito', 'vector', 'prevention', 'bed nets'],
+  'కళ్ళ': ['eye', 'retro-orbital', 'pain', 'dengue'],
+  'కళ్ళు': ['eye', 'pain', 'dengue'],
+  'కీళ్ళ': ['joint', 'muscle', 'breakbone', 'dengue'],
+  'కండరాల': ['muscle', 'joint', 'pain', 'dengue'],
+  'వాంతులు': ['vomiting', 'persistent', 'warning signs'],
+  'వాంతి': ['vomiting', 'blood', 'warning signs'],
+  'కడుపు': ['abdominal', 'pain', 'severe dengue'],
+  'చిగుళ్ళ': ['gums', 'bleeding', 'dengue'],
+  'రక్తస్రావం': ['bleeding', 'severe', 'warning signs'],
+  'నీరసం': ['lethargy', 'fatigue', 'warning signs'],
+  'నిలిచిన': ['standing', 'water', 'aedes', 'prevention'],
+  'తెర': ['net', 'bed nets', 'itns', 'malaria'],
+  'తెరలు': ['nets', 'bed nets', 'malaria'],
+  // Child Health & Growth Standards
+  'పెరుగుదల': ['growth', 'standards', 'percentiles', 'z-score', 'child'],
+  'ఎదుగుదల': ['growth', 'standards', 'percentiles', 'z-score'],
+  'పిల్లల': ['child', 'infant', 'growth', 'pediatric'],
+  'పిల్లలు': ['children', 'child', 'growth'],
+  'పిల్లవాడి': ['child', 'growth', 'weight'],
+  'శిశు': ['infant', 'newborn', 'baby', 'breastfeeding'],
+  'శిశువు': ['infant', 'baby', 'breastfeeding', 'fever'],
+  'బరువు': ['weight', 'wasting', 'underweight', 'growth'],
+  'ఎత్తు': ['height', 'length', 'stunting', 'growth'],
+  'పోషకాహార': ['nutrition', 'malnutrition', 'stunting', 'wasting'],
+  'అంగన్': ['anganwadi', 'nutrition', 'child'],
+  'స్కోర్': ['z-score', 'percentiles', 'growth'],
+  'శాతం': ['percentiles', 'z-score'],
+  // Fever & Common Symptoms
+  'జ్వరం': ['fever', 'temperature', 'red flags', 'hydration', 'home care'],
+  'జ్వర': ['fever', 'temperature', 'hydration'],
+  'వేడి': ['temperature', 'fever'],
+  'చలి': ['chills', 'rigors', 'malaria'],
+  'వణుకు': ['rigors', 'chills', 'hypoglycemia'],
+  'చెమట': ['sweating', 'sweats', 'hypoglycemia'],
+  'తలనొప్పి': ['headache', 'frontal', 'dengue'],
+  'లక్షణాలు': ['symptoms', 'warning', 'signs', 'clinical'],
+  'లక్షణ': ['symptoms', 'signs'],
+  'హెచ్చరిక': ['warning signs', 'red flags', 'emergency'],
+  'సంకేతాలు': ['signs', 'warning signs', 'red flags'],
+  'ప్రమాద': ['emergency', 'red flags', 'warning signs'],
+  'అత్యవసర': ['emergency', 'immediate', 'hospital', 'urgent'],
+  'ఆసుపత్రి': ['hospital', 'hospitalized', 'emergency'],
+  'నీరు': ['water', 'fluids', 'hydration'],
+  'ద్రవాలు': ['fluids', 'hydration', 'oral rehydration'],
+  'ఓఆర్ఎస్': ['oral rehydration', 'ors', 'fluids'],
+  'దద్దుర్లు': ['rash', 'petechial', 'skin'],
+  'మెడ': ['stiff neck', 'fever red flags'],
+  'మగత': ['drowsiness', 'lethargy', 'fever'],
+  'నివారణ': ['prevention', 'control'],
+  'జాగ్రత్తలు': ['precautions', 'home care', 'safety'],
+  // Government Schemes (PM-JAY & ABHA)
+  'ఆయుష్మాన్': ['pm-jay', 'ayushman bharat', 'scheme', 'cashless', 'golden card'],
+  'పిఎం-జేవై': ['pm-jay', 'ayushman', 'scheme'],
+  'పథకం': ['scheme', 'pm-jay', 'coverage'],
+  'కార్డు': ['card', 'ayushman card', 'golden card', 'documents'],
+  'కార్డ్': ['card', 'ayushman card', 'golden card', 'documents'],
+  'బంగారు': ['golden card', 'ayushman card'],
+  'గోల్డెన్': ['golden card', 'ayushman card'],
+  'పత్రాలు': ['documents', 'aadhaar', 'ration card'],
+  'డాక్యుమెంట్లు': ['documents', 'aadhaar', 'ration card'],
+  'ఆధార్': ['aadhaar', 'photo id', 'documents'],
+  'రేషన్': ['ration card', 'family id', 'documents'],
+  'అర్హత': ['eligibility', 'secc 2011', '14555'],
+  'నగదు': ['cashless', '5 lakh', 'pm-jay'],
+  'ఉచిత': ['free', 'cashless', 'pm-jay'],
+  'లక్షల': ['5 lakh', 'pm-jay', 'cover'],
+  'చికిత్స': ['hospitalization', 'treatment', 'cashless'],
+  'ఆభా': ['abha', 'digital health id', '14 digit', 'health record'],
+  'డిజిటల్': ['digital', 'abha', 'health record'],
+  // Diabetes, Maternal Care, Hypertension
+  'మధుమేహం': ['diabetes', 'glucose', 'sugar', 'diet', 'exercise'],
+  'మధుమేహ': ['diabetes', 'glucose', 'diet'],
+  'షుగర్': ['sugar', 'glucose', 'diabetes', 'hypoglycemia'],
+  'గ్లూకోజ్': ['glucose', 'sugar', 'hypoglycemia'],
+  'ఆహారం': ['diet', 'food', 'nutrition', 'meals'],
+  'ఆహార': ['diet', 'dietary', 'meals'],
+  'కూరగాయలు': ['vegetables', 'diet', 'fiber'],
+  'పండ్లు': ['fruits', 'diet', 'potassium'],
+  'తీపి': ['sweetened', 'sugar', 'refined'],
+  'వ్యాయామం': ['exercise', 'physical activity', 'walking', 'aerobic'],
+  'నడక': ['walking', 'exercise', 'activity'],
+  'రక్తపోటు': ['blood pressure', 'hypertension', 'mmhg', 'salt'],
+  'బీపీ': ['bp', 'blood pressure', 'hypertension'],
+  'ఉప్పు': ['salt', 'sodium', '5 grams', 'hypertension'],
+  'సోడియం': ['sodium', 'salt', 'hypertension'],
+  'పొటాషియం': ['potassium', 'hypertension', 'diet'],
+  'తల్లి': ['mother', 'maternal', 'breastfeeding'],
+  'తల్లిపాలు': ['breastfeeding', 'breast milk', 'exclusive', '6 months'],
+  'పాలు': ['milk', 'breastfeeding', 'infant'],
+  'నెలలు': ['months', '6 months', 'infant'],
+  'వ్యాధి': ['disease', 'condition', 'symptoms'],
+  'వైద్యుడిని': ['doctor', 'clinician', 'pediatrician'],
+  // Unverified Remedies & Out-of-Domain Clinical Entities (preserve accurate Weak/None gating)
+  'బొప్పాయి': ['papaya'],
+  'ఆకు': ['leaf'],
+  'రసం': ['juice'],
+  'ఆయుర్వేద': ['ayurveda'],
+  'విటమిన్': ['vitamin'],
+  'పసుపు': ['turmeric'],
+  'అల్లం': ['ginger'],
+  'తేనె': ['honey'],
+  'టైఫాయిడ్': ['typhoid'],
+  'యాంటీబయాటిక్స్': ['antibiotics'],
+  'యాంటీబయాటిక్': ['antibiotic'],
+  'క్షయ': ['tuberculosis'],
+  'క్యాన్సర్': ['cancer'],
+  'కరోనా': ['coronavirus'],
+  'కొవిడ్': ['covid'],
+  'టీకా': ['vaccine'],
+  'శస్త్రచికిత్స': ['surgery'],
+  'కిడ్నీ': ['kidney'],
+  'కాలేయ': ['liver'],
+  'కామెర్లు': ['jaundice'],
+  'చికెన్': ['chickenpox'],
+  'మైగ్రేన్': ['migraine'],
+  'కీళ్ళవాతం': ['arthritis'],
+  'కొలెస్ట్రాల్': ['cholesterol'],
+  'న్యుమోనియా': ['pneumonia'],
+  'హెపటైటిస్': ['hepatitis'],
+  'థైరాయిడ్': ['thyroid'],
+};
+
+const TELUGU_STOPWORDS = new Set([
+  'ఏమిటి', 'ఏవి', 'ఎలా', 'ఎక్కడ', 'ఎప్పుడు', 'ఎందుకు', 'ఎంత', 'ఎవరు',
+  'ఉంది', 'ఉన్నాయి', 'ఉంటాయి', 'ఉంటే', 'గురించి', 'చెప్పండి', 'తెలపండి',
+  'చేయాలి', 'చేయవచ్చు', 'తీసుకోవాలి', 'ఇవ్వాలి', 'తాగాలి', 'తినాలి',
+  'అంటే', 'మరియు', 'లేదా', 'కోసం', 'ద్వారా', 'లో', 'కు', 'కి', 'ను', 'ని',
+  'తో', 'పై', 'నాకు', 'మాకు', 'మీరు', 'వారు', 'ఇది', 'అది', 'ఇవి', 'అవి',
+  'కావాలి', 'వస్తుంది', 'వస్తే', 'వచ్చినప్పుడు', 'వచ్చినా', 'ఉన్నప్పుడు', 'మాత్రమే',
+  'బాగా', 'చాలా', 'మంచిదా', 'సురక్షితమా', 'కలుగుతుందా', 'నయమవుతుందా', 'అవుతుందా',
+  'ఒక', 'రెండు', 'మూడు', 'మరిన్ని', 'వివరాలు', 'సమాచారం', 'సాధారణ', 'నియమాలు'
+]);
+
+function expandQueryForRetrieval(query: string): { expandedQuery: string; mappedTeluguKeys: Set<string> } {
+  let expanded = query;
+  const mappedTeluguKeys = new Set<string>();
+
+  for (const [teluguKey, englishEquivs] of Object.entries(TELUGU_EXPANSION_MAP)) {
+    if (query.includes(teluguKey)) {
+      mappedTeluguKeys.add(teluguKey);
+      expanded += ' ' + englishEquivs.join(' ');
+    }
+  }
+
+  const rawWords = expanded.toLowerCase().split(/[^a-z0-9\u0C00-\u0C7F]+/).filter(Boolean);
+  for (const w of rawWords) {
+    const syns = ENGLISH_SYNONYM_MAP[w];
+    if (syns) {
+      expanded += ' ' + syns.join(' ');
+    }
+  }
+
+  return { expandedQuery: expanded, mappedTeluguKeys };
+}
+
 /**
- * Computes a normalized 1024-dimension dense semantic vector from text.
- * Integrates character 3-grams, positional subwords, and Indic unicode tokens.
- * L2 normalization guarantees that the dot product is exactly equal to Cosine Similarity.
+ * Computes a normalized 1024-dimension dense semantic-subword vector from text.
+ * Strips conversational stopwords so lay-language filler does not dilute similarity,
+ * integrates character 3-grams, content words, and positional bigrams.
  */
 function computeDenseVector(text: string): Float32Array {
   const vec = new Float32Array(VECTOR_DIM);
-  const normalized = text.toLowerCase().trim();
-  if (!normalized) return vec;
+  const rawTokens = text
+    .toLowerCase()
+    .trim()
+    .split(/[^a-z0-9\u0C00-\u0C7F]+/)
+    .filter((w) => w.length > 1 && !RETRIEVAL_STOPWORDS.has(w) && !TELUGU_STOPWORDS.has(w));
+  if (rawTokens.length === 0) return vec;
 
-  const words = normalized.split(/[^a-zA-Z0-9\u0C00-\u0C7F]+/).filter(Boolean);
+  const contentString = rawTokens.join(' ');
 
-  // Subword 3-grams and 4-grams for typo-resilient semantic hashing
-  for (let i = 0; i < normalized.length - 2; i++) {
-    const gram = normalized.slice(i, i + 3);
+  // Subword 3-grams over meaningful content tokens
+  for (let i = 0; i < contentString.length - 2; i++) {
+    const gram = contentString.slice(i, i + 3);
+    if (gram.includes('  ')) continue;
     let h = 0;
     for (let c = 0; c < gram.length; c++) {
       h = (h << 5) - h + gram.charCodeAt(c);
@@ -620,25 +1043,32 @@ function computeDenseVector(text: string): Float32Array {
     }
     const idx = Math.abs(h) % VECTOR_DIM;
     const sign = (h & 1) === 0 ? 1 : -1;
-    vec[idx] += sign * 1.5;
+    vec[idx] += sign * 1.0;
   }
 
-  // Word-level positional features
-  for (let w = 0; w < words.length; w++) {
-    const word = words[w];
+  // Content word and adjacent bigram features
+  for (let w = 0; w < rawTokens.length; w++) {
+    const word = rawTokens[w];
     let h = 5381;
     for (let c = 0; c < word.length; c++) {
       h = ((h << 5) + h) + word.charCodeAt(c);
       h |= 0;
     }
     const idx = Math.abs(h) % VECTOR_DIM;
-    vec[idx] += 3.0;
+    vec[idx] += 3.5;
 
-    const idx2 = Math.abs(h * 31 + w) % VECTOR_DIM;
-    vec[idx2] += 2.0;
+    if (w + 1 < rawTokens.length) {
+      const bigram = word + '_' + rawTokens[w + 1];
+      let bh = 2166136261;
+      for (let c = 0; c < bigram.length; c++) {
+        bh ^= bigram.charCodeAt(c);
+        bh = Math.imul(bh, 16777619);
+      }
+      vec[Math.abs(bh) % VECTOR_DIM] += 2.2;
+    }
   }
 
-  // L2 Normalization to project vector onto unit hypersphere (||vec|| == 1.0)
+  // L2 Normalization to unit hypersphere (||vec|| == 1.0)
   let sumSq = 0;
   for (let i = 0; i < VECTOR_DIM; i++) {
     sumSq += vec[i] * vec[i];
@@ -655,7 +1085,9 @@ function getChunkVector(chunk: DocumentChunk): Float32Array {
   if (chunkVectorCache.has(chunk.id)) {
     return chunkVectorCache.get(chunk.id)!;
   }
-  const corpus = `${chunk.title} ${chunk.section} ${chunk.text} ${chunk.keywords.join(' ')}`;
+  const teluguPassage = TELUGU_APPROVED_PASSAGES.find((p) => p.topic === chunk.topic);
+  const teluguSuffix = teluguPassage ? ` ${teluguPassage.title} ${teluguPassage.short_answer}` : '';
+  const corpus = `${chunk.title} ${chunk.section} ${chunk.text} ${chunk.keywords.join(' ')}${teluguSuffix}`;
   const vec = computeDenseVector(corpus);
   chunkVectorCache.set(chunk.id, vec);
   return vec;
@@ -669,28 +1101,6 @@ function cosineSimilarity(vecA: Float32Array, vecB: Float32Array): number {
   return Math.max(0.0, Math.min(1.0, dot));
 }
 
-const TELUGU_EXPANSION_MAP: Record<string, string[]> = {
-  'డెంగ్యూ': ['dengue', 'fever', 'warning', 'vomiting', 'bleeding'],
-  'మలేరియా': ['malaria', 'chills', 'mosquito', 'net'],
-  'దోమ': ['mosquito', 'vector', 'aedes', 'repellent', 'water'],
-  'దోమలు': ['mosquito', 'standing', 'water', 'prevention'],
-  'పెరుగుదల': ['growth', 'standards', 'percentiles', 'z-score'],
-  'పిల్లల': ['child', 'infant', 'growth', 'pediatric'],
-  'జ్వరం': ['fever', 'temperature', 'red', 'flags', 'hydration'],
-  'లక్షణాలు': ['symptoms', 'warning', 'signs', 'clinical'],
-  'ఆయుష్మాన్': ['pmjay', 'ayushman', 'bharat', 'scheme', 'cashless'],
-  'కార్డు': ['card', 'documents', 'aadhaar', 'ration'],
-  'ఆభా': ['abha', 'digital', 'health', 'record'],
-  'మధుమేహం': ['diabetes', 'glucose', 'sugar', 'diet'],
-  'షుగర్': ['sugar', 'glucose', 'diabetes', 'hba1c'],
-  'రక్తపోటు': ['blood', 'pressure', 'hypertension', 'salt'],
-  'బీపీ': ['bp', 'blood', 'pressure', 'hypertension'],
-  'ఆహారం': ['diet', 'food', 'nutrition'],
-  'వ్యాయామం': ['exercise', 'activity', 'walking'],
-  'తల్లి': ['maternal', 'breastfeeding', 'mother'],
-  'పాలు': ['milk', 'breastfeeding', 'infant'],
-};
-
 interface RetrievedMatch {
   chunk: DocumentChunk;
   doc: DocumentSource;
@@ -701,17 +1111,20 @@ interface RetrievedMatch {
 
 function retrieveApprovedChunks(
   query: string,
-  language: Language,
+  _language: Language,
   collection: 'all' | 'approved_health_knowledge' | 'scheme_knowledge' = 'all'
 ): RetrievedMatch[] {
-  let expandedQuery = query;
-  for (const [teluguWord, englishEquivs] of Object.entries(TELUGU_EXPANSION_MAP)) {
-    if (query.includes(teluguWord)) {
-      expandedQuery += ' ' + englishEquivs.join(' ');
-    }
-  }
-
+  const { expandedQuery } = expandQueryForRetrieval(query);
   const queryVec = computeDenseVector(expandedQuery);
+  const expandedTokens = Array.from(
+    new Set(
+      expandedQuery
+        .toLowerCase()
+        .split(/[^a-z0-9\u0C00-\u0C7F]+/)
+        .filter((w) => w.length >= 2 && !RETRIEVAL_STOPWORDS.has(w) && !TELUGU_STOPWORDS.has(w))
+    )
+  );
+  const expandedTokenSet = new Set(expandedTokens);
   const scoredChunks: RetrievedMatch[] = [];
 
   for (const doc of db.documents) {
@@ -722,22 +1135,41 @@ function retrieveApprovedChunks(
       const chunkVec = getChunkVector(chunk);
       const cosSim = cosineSimilarity(queryVec, chunkVec);
 
-      // Compute exact domain keyword / title boost before cutoff so short entity queries (e.g., "papaya leaf dengue") aren't dropped prematurely
-      let keywordBoost = 0;
-      const lowerQ = query.toLowerCase();
+      // Build whole-word set from chunk text + keywords + title
+      const chunkWholeWords = new Set(
+        `${chunk.title} ${chunk.section} ${chunk.text} ${chunk.keywords.join(' ')}`
+          .toLowerCase()
+          .split(/[^a-z0-9\u0C00-\u0C7F]+/)
+          .filter(Boolean)
+      );
+
+      // Whole-word keyword & title boost computed on EXPANDED query (so Telugu queries also receive boosts)
+      let keywordHits = 0;
       for (const kw of chunk.keywords) {
-        if (lowerQ.includes(kw.toLowerCase())) {
-          keywordBoost += 0.04;
+        const kwParts = kw.toLowerCase().split(/[^a-z0-9]+/).filter((p) => p.length >= 2);
+        if (kwParts.length > 0 && kwParts.every((p) => expandedTokenSet.has(p))) {
+          keywordHits += 1;
         }
       }
-      if (chunk.title.toLowerCase().split(/\s+/).some((t) => lowerQ.includes(t) && t.length > 3)) {
-        keywordBoost += 0.04;
+      const titleWords = chunk.title.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 3 && !RETRIEVAL_STOPWORDS.has(t));
+      let titleHits = 0;
+      for (const tw of titleWords) {
+        if (expandedTokenSet.has(tw)) titleHits += 1;
       }
 
+      // Lexical content-token recall ratio against chunk whole words
+      let chunkLexHits = 0;
+      for (const qt of expandedTokens) {
+        if (matchesWholeWordInSet(qt, chunkWholeWords, false)) {
+          chunkLexHits += 1;
+        }
+      }
+      const lexicalRecall = expandedTokens.length > 0 ? chunkLexHits / Math.min(expandedTokens.length, 6) : 0;
+
+      const keywordBoost = Math.min(0.24, keywordHits * 0.05 + titleHits * 0.03 + lexicalRecall * 0.14);
       const calibratedScore = Math.min(0.99, cosSim + keywordBoost);
 
-      // Semantic threshold for relevant matches
-      if (cosSim >= 0.23 || (keywordBoost >= 0.08 && cosSim >= 0.16 && calibratedScore >= 0.26)) {
+      if (cosSim >= 0.20 || (keywordBoost >= 0.09 && calibratedScore >= 0.25)) {
         scoredChunks.push({
           chunk,
           doc,
@@ -754,26 +1186,18 @@ function retrieveApprovedChunks(
 }
 
 // ============================================================================
-// EVIDENCE STRENGTH EVALUATOR & STRICT GROUNDING VERIFIER
+// EVIDENCE STRENGTH EVALUATOR & STRICT WHOLE-WORD GROUNDING VERIFIER
 // ============================================================================
 const QUERY_STOPWORDS = new Set([
-  'what', 'when', 'where', 'which', 'who', 'whom', 'whose', 'why', 'how',
-  'can', 'could', 'should', 'would', 'will', 'shall', 'may', 'might', 'must',
-  'does', 'did', 'done', 'doing', 'is', 'are', 'was', 'were', 'been', 'being',
-  'have', 'has', 'had', 'having', 'the', 'and', 'but', 'for', 'with', 'from',
-  'about', 'into', 'onto', 'upon', 'that', 'this', 'these', 'those', 'there',
-  'their', 'them', 'they', 'you', 'your', 'our', 'his', 'her', 'its', 'any',
-  'all', 'some', 'many', 'much', 'more', 'most', 'other', 'such', 'only',
-  'need', 'needs', 'needed', 'tell', 'explain', 'give', 'please', 'help',
-  'know', 'want', 'show', 'find', 'using', 'based', 'according', 'between',
-  'people', 'person', 'patient', 'patients', 'someone', 'anyone', 'health',
-  'healthcare', 'medical', 'clinical', 'doctor', 'hospital', 'care', 'use',
-  'take', 'make', 'get', 'got', 'information', 'guideline', 'guidelines',
-  'official', 'approved', 'reviewed', 'document', 'documents', 'source',
-  'sources', 'apply', 'required', 'indicate', 'requires', 'immediate', 'immediate',
-  'immediately', 'urgent', 'evaluate', 'evaluation', 'interpret', 'should',
-  'parents', 'child', 'children', 'generate', 'card', 'standard', 'standards',
-  'cure', 'treat', 'treatment', 'remedy', 'safe', 'okay', 'good', 'bad'
+  ...RETRIEVAL_STOPWORDS,
+  'done', 'doing', 'having', 'into', 'onto', 'upon', 'there', 'them', 'more', 'most',
+  'other', 'such', 'only', 'needs', 'needed', 'using', 'based', 'according', 'between',
+  'patient', 'patients', 'health', 'healthcare', 'medical', 'clinical', 'doctor', 'hospital',
+  'care', 'use', 'take', 'information', 'guideline', 'guidelines', 'official', 'approved',
+  'reviewed', 'document', 'documents', 'source', 'sources', 'apply', 'required', 'indicate',
+  'requires', 'immediate', 'immediately', 'urgent', 'evaluate', 'evaluation', 'interpret',
+  'parents', 'generate', 'standard', 'standards', 'cure', 'treat', 'treatment', 'remedy',
+  'safe', 'okay', 'good', 'bad', 'mean', 'properly', 'keep', 'steady', 'sign', 'signs'
 ]);
 
 const OUT_OF_DOMAIN_ENTITIES = new Set([
@@ -789,7 +1213,7 @@ const OUT_OF_DOMAIN_ENTITIES = new Set([
 const UNVERIFIED_REMEDY_ENTITIES = new Set([
   'papaya', 'herbal', 'ayurveda', 'ayurvedic', 'homeopathy', 'homeopathic',
   'vitamin', 'vitamins', 'supplement', 'supplements', 'garlic', 'turmeric',
-  'ginger', 'coconut', 'honey', 'neem', 'tulsi'
+  'ginger', 'coconut', 'honey', 'neem', 'tulsi', 'leaf', 'juice'
 ]);
 
 const SPECIFIC_CLINICAL_ENTITIES = new Set([
@@ -798,6 +1222,30 @@ const SPECIFIC_CLINICAL_ENTITIES = new Set([
   'antibiotic', 'antibiotics', 'amoxicillin', 'azithromycin', 'ibuprofen',
   'aspirin', 'paracetamol', 'acetaminophen', 'dolo'
 ]);
+
+function matchesWholeWordInSet(token: string, wordSet: Set<string>, strictExactOnly: boolean): boolean {
+  if (wordSet.has(token)) return true;
+  // Whole-word plural/singular only for strict clinical/out-of-domain entities (never substring slicing!)
+  if (strictExactOnly) {
+    if (wordSet.has(token + 's')) return true;
+    if (token.endsWith('s') && token.length > 3 && wordSet.has(token.slice(0, -1))) return true;
+    return false;
+  }
+  // Safe whole-word morphological variants (still strictly whole-word membership in wordSet)
+  if (wordSet.has(token + 's') || wordSet.has(token + 'es')) return true;
+  if (token.endsWith('s') && token.length > 3 && wordSet.has(token.slice(0, -1))) return true;
+  if (token.endsWith('es') && token.length > 4 && wordSet.has(token.slice(0, -2))) return true;
+  if (token.endsWith('ies') && token.length > 4 && wordSet.has(token.slice(0, -3) + 'y')) return true;
+  if (token.endsWith('ing') && token.length > 5) {
+    const base = token.slice(0, -3);
+    if (wordSet.has(base) || wordSet.has(base + 'e')) return true;
+  }
+  if (token.endsWith('ed') && token.length > 4) {
+    const base = token.slice(0, -2);
+    if (wordSet.has(base) || wordSet.has(base + 'e')) return true;
+  }
+  return false;
+}
 
 function extractConciseSentences(text: string, maxChars = 190): string {
   const cleaned = text.replace(/\s+/g, ' ').trim();
@@ -829,17 +1277,35 @@ interface EvidenceEvaluation {
 }
 
 function extractContentTokens(query: string): string[] {
-  let expanded = query;
-  for (const [teluguWord, englishEquivs] of Object.entries(TELUGU_EXPANSION_MAP)) {
-    if (query.includes(teluguWord)) {
-      expanded += ' ' + englishEquivs.join(' ');
+  const { expandedQuery, mappedTeluguKeys } = expandQueryForRetrieval(query);
+  const rawWords = expandedQuery
+    .toLowerCase()
+    .split(/[^a-z0-9\u0C00-\u0C7F]+/)
+    .filter(Boolean);
+
+  const tokens: string[] = [];
+  for (const w of rawWords) {
+    const isTelugu = /[\u0C00-\u0C7F]/.test(w);
+    if (isTelugu) {
+      if (TELUGU_STOPWORDS.has(w) || w.length < 2) continue;
+      // If this Telugu word was already mapped into English concepts via TELUGU_EXPANSION_MAP,
+      // avoid keeping a duplicate un-stemmable Telugu string that would unfairly lower coverageRatio
+      let alreadyMapped = false;
+      for (const mappedKey of mappedTeluguKeys) {
+        if (w.includes(mappedKey) || mappedKey.includes(w)) {
+          alreadyMapped = true;
+          break;
+        }
+      }
+      if (!alreadyMapped) {
+        tokens.push(w);
+      }
+    } else {
+      if (w.length < 3 || QUERY_STOPWORDS.has(w)) continue;
+      tokens.push(w);
     }
   }
-  const rawWords = expanded
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((w) => w.length >= 3 && !QUERY_STOPWORDS.has(w));
-  return Array.from(new Set(rawWords));
+  return Array.from(new Set(tokens));
 }
 
 function evaluateEvidenceQuality(query: string, matches: RetrievedMatch[]): EvidenceEvaluation {
@@ -857,10 +1323,24 @@ function evaluateEvidenceQuality(query: string, matches: RetrievedMatch[]): Evid
 
   const topMatches = matches.slice(0, 3);
   const primaryScore = topMatches[0].similarity_score;
-  const combinedCorpus = topMatches
-    .map((m) => `${m.doc.title} ${m.chunk.title} ${m.chunk.section} ${m.chunk.text} ${m.chunk.keywords.join(' ')}`)
-    .join(' ')
-    .toLowerCase();
+  const topicTeluguContext = topMatches
+    .map((m) => {
+      const te = TELUGU_APPROVED_PASSAGES.find((p) => p.topic === m.chunk.topic);
+      return te ? `${te.title} ${te.short_answer} ${te.detail}` : '';
+    })
+    .join(' ');
+  const combinedCorpus = (
+    topMatches
+      .map((m) => `${m.doc.title} ${m.chunk.title} ${m.chunk.section} ${m.chunk.text} ${m.chunk.keywords.join(' ')}`)
+      .join(' ') +
+    ' ' +
+    topicTeluguContext
+  ).toLowerCase();
+
+  // Whole-word corpus index (prevents "liver" matching "deliver", "car" matching "care", "cancer" matching "cancel")
+  const corpusWords = new Set(
+    combinedCorpus.split(/[^a-z0-9\u0C00-\u0C7F]+/).filter(Boolean)
+  );
 
   const contentTokens = extractContentTokens(query);
   const matchedTerms: string[] = [];
@@ -870,16 +1350,14 @@ function evaluateEvidenceQuality(query: string, matches: RetrievedMatch[]): Evid
   const missingNonRemedySpecificEntities: string[] = [];
 
   for (const token of contentTokens) {
-    const stem = token.length >= 5 ? token.slice(0, token.length - 1) : token;
-    const isPresent =
-      combinedCorpus.includes(token) ||
-      (stem.length >= 4 && combinedCorpus.includes(stem));
+    const isSpecific = SPECIFIC_CLINICAL_ENTITIES.has(token);
+    const isPresent = matchesWholeWordInSet(token, corpusWords, isSpecific);
 
     if (isPresent) {
       matchedTerms.push(token);
     } else {
       missingTerms.push(token);
-      if (SPECIFIC_CLINICAL_ENTITIES.has(token)) {
+      if (isSpecific) {
         missingSpecificEntities.push(token);
         if (!UNVERIFIED_REMEDY_ENTITIES.has(token)) {
           missingNonRemedySpecificEntities.push(token);
@@ -899,10 +1377,10 @@ function evaluateEvidenceQuality(query: string, matches: RetrievedMatch[]): Evid
     missingSpecificEntities.some((t) => UNVERIFIED_REMEDY_ENTITIES.has(t)) &&
     matchedTerms.length >= 1;
 
-  // Hard Refusal ('None'): Out-of-domain disease/topic missing, very low vector match, or zero core topic overlap
+  // Hard Refusal ('None'): Out-of-domain entity missing, very low score, or zero core topic overlap
   if (
-    (!isRemedyOnIndexedCondition && primaryScore < 0.36) ||
-    (isRemedyOnIndexedCondition && primaryScore < 0.26) ||
+    (!isRemedyOnIndexedCondition && primaryScore < 0.34) ||
+    (isRemedyOnIndexedCondition && primaryScore < 0.25) ||
     matchedTerms.length === 0 ||
     coverageRatio < 0.24 ||
     missingOutOfDomainEntities.length > 0 ||
@@ -919,11 +1397,11 @@ function evaluateEvidenceQuality(query: string, matches: RetrievedMatch[]): Evid
     };
   }
 
-  // Weak Evidence ('Weak'): Low vector similarity, low concept overlap, or user asks about an uncovered remedy/intervention
+  // Weak Evidence ('Weak'): Partial overlap, modest score, or query asks about an uncovered remedy/intervention
   if (
-    primaryScore < 0.45 ||
-    (primaryScore < 0.52 && coverageRatio < 0.85) ||
-    coverageRatio < 0.55 ||
+    primaryScore < 0.42 ||
+    (primaryScore < 0.50 && coverageRatio < 0.70) ||
+    coverageRatio < 0.48 ||
     missingSpecificEntities.length > 0
   ) {
     return {
@@ -937,8 +1415,8 @@ function evaluateEvidenceQuality(query: string, matches: RetrievedMatch[]): Evid
     };
   }
 
-  // Strong Evidence ('Strong'): High vector match AND high concept coverage AND no missing specific entities
-  if (primaryScore >= 0.63 && coverageRatio >= 0.68 && missingSpecificEntities.length === 0) {
+  // Strong Evidence ('Strong'): High vector+lexical alignment AND strong concept coverage AND zero missing specific entities
+  if (primaryScore >= 0.60 && coverageRatio >= 0.64 && missingSpecificEntities.length === 0) {
     return {
       strength: 'Strong',
       status: 'supported_by_reviewed_sources',
@@ -1057,6 +1535,64 @@ function hasUngroundedDosageOrNumber(generatedText: string, evidenceText: string
    REST API Endpoints
    ========================================================================== */
 
+// 0. GET /api/health (Server, Disk Store & Live Gemini LLM Probe)
+app.get('/api/health', async (req: Request, res: Response) => {
+  const forceProbe = req.query.probe === '1' || req.query.live === '1';
+  const cacheAgeMs = llmRuntimeStatus.last_checked_at
+    ? Date.now() - new Date(llmRuntimeStatus.last_checked_at).getTime()
+    : Infinity;
+
+  if (aiClient && (forceProbe || llmRuntimeStatus.working === null || cacheAgeMs > 60000)) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    try {
+      const probeResult = await aiClient.models.generateContent({
+        model: DEFAULT_GEMINI_MODEL,
+        contents: 'Reply with OK',
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          abortSignal: controller.signal,
+        },
+      });
+      llmRuntimeStatus.working = Boolean(probeResult?.text?.trim());
+      llmRuntimeStatus.last_checked_at = new Date().toISOString();
+      llmRuntimeStatus.last_error = llmRuntimeStatus.working ? null : 'Empty probe response from Gemini API';
+    } catch (err: any) {
+      llmRuntimeStatus.working = false;
+      llmRuntimeStatus.last_checked_at = new Date().toISOString();
+      llmRuntimeStatus.last_error =
+        err?.name === 'AbortError'
+          ? 'Gemini health probe timed out (4s)'
+          : String(err?.message || 'Gemini API probe failed');
+      console.warn('[HealthCheck] Gemini LLM probe failed:', llmRuntimeStatus.last_error);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  let storeWritable = false;
+  try {
+    fs.accessSync(DATA_DIR, fs.constants.W_OK);
+    storeWritable = true;
+  } catch {
+    storeWritable = false;
+  }
+
+  res.status(storeWritable ? 200 : 503).json({
+    status: storeWritable ? 'ok' : 'degraded',
+    uptime_seconds: Math.round(process.uptime()),
+    documents_indexed: db.documents.filter((d) => d.status === 'indexed').length,
+    store_writable: storeWritable,
+    llm: {
+      configured: llmRuntimeStatus.configured,
+      model: llmRuntimeStatus.model,
+      working: Boolean(llmRuntimeStatus.working),
+      last_checked_at: llmRuntimeStatus.last_checked_at,
+      error: llmRuntimeStatus.last_error,
+    },
+  });
+});
+
 // 1. GET /api/me
 app.get('/api/me', (req: Request, res: Response) => {
   const ctx = resolveSessionContext(req, res, true)!;
@@ -1103,13 +1639,19 @@ app.post('/api/conversations', (req: Request, res: Response) => {
   const ctx = resolveSessionContext(req, res, true)!;
   const prefs = getSessionPreferences(ctx.sessionId);
   const { title, topic, language } = req.body || {};
+  const safeTitle =
+    typeof title === 'string' && title.trim()
+      ? title.trim().slice(0, 120)
+      : language === 'te'
+      ? 'కొత్త సంభాషణ'
+      : 'New Health Inquiry';
   const id = 'conv_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
   const newConv: Conversation = {
     id,
     session_id: ctx.sessionId,
-    title: title || (language === 'te' ? 'కొత్త సంభాషణ' : 'New Health Inquiry'),
-    topic: topic || 'general',
-    language: language || prefs.language,
+    title: safeTitle,
+    topic: typeof topic === 'string' ? topic.slice(0, 60) : 'general',
+    language: language === 'te' ? 'te' : prefs.language,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     messages: [],
@@ -1174,11 +1716,11 @@ app.delete('/api/conversations', (req: Request, res: Response) => {
 
 // 8. POST /api/speech/transcriptions
 app.post('/api/speech/transcriptions', async (req: Request, res: Response) => {
-  const { language = 'en', sample_text } = req.body;
+  const { language = 'en', sample_text } = req.body || {};
 
-  if (sample_text) {
+  if (sample_text && typeof sample_text === 'string') {
     res.json({
-      transcript: sample_text,
+      transcript: sample_text.slice(0, MAX_MESSAGE_LENGTH),
       language,
       confidence: 0.96,
       audio_duration_seconds: 4.2,
@@ -1201,10 +1743,20 @@ app.post('/api/conversations/:id/messages', async (req: Request, res: Response) 
   const { id } = req.params;
   const ctx = resolveSessionContext(req, res, true)!;
   const prefs = getSessionPreferences(ctx.sessionId);
-  const { text, language = prefs.language } = req.body;
+  const rawText = req.body?.text;
+  const language: Language = req.body?.language === 'te' ? 'te' : req.body?.language === 'en' ? 'en' : prefs.language;
 
-  if (!text || typeof text !== 'string') {
+  if (!rawText || typeof rawText !== 'string' || !rawText.trim()) {
     res.status(400).json({ error: 'Message text is required' });
+    return;
+  }
+
+  const text = rawText.trim();
+  if (text.length > MAX_MESSAGE_LENGTH) {
+    res.status(400).json({
+      error: `Message text exceeds the ${MAX_MESSAGE_LENGTH}-character limit.`,
+      max_length: MAX_MESSAGE_LENGTH,
+    });
     return;
   }
 
@@ -1296,7 +1848,7 @@ app.post('/api/conversations/:id/messages', async (req: Request, res: Response) 
 
     conv.messages.push(crisisMsg);
     conv.updated_at = new Date().toISOString();
-    saveStoreToDisk();
+    appendMessageDeltaToWal(conv, [userMsg, crisisMsg]);
     res.json(crisisMsg);
     return;
   }
@@ -1356,7 +1908,7 @@ app.post('/api/conversations/:id/messages', async (req: Request, res: Response) 
 
     conv.messages.push(urgentMsg);
     conv.updated_at = new Date().toISOString();
-    saveStoreToDisk();
+    appendMessageDeltaToWal(conv, [userMsg, urgentMsg]);
     res.json(urgentMsg);
     return;
   }
@@ -1422,7 +1974,7 @@ app.post('/api/conversations/:id/messages', async (req: Request, res: Response) 
 
     conv.messages.push(safetyMsg);
     conv.updated_at = new Date().toISOString();
-    saveStoreToDisk();
+    appendMessageDeltaToWal(conv, [userMsg, safetyMsg]);
     res.json(safetyMsg);
     return;
   }
@@ -1465,7 +2017,7 @@ app.post('/api/conversations/:id/messages', async (req: Request, res: Response) 
         : 'Please consult a qualified healthcare professional or local public health clinic for reliable guidance on this topic.',
       missing_topics: evaluation.missingTerms,
       similarity_score: evaluation.primaryScore,
-      retrieval_method: '1024-Dim Dense Subword Cosine Retrieval (Evidence Gate: Refused)',
+      retrieval_method: 'Hybrid Subword + Synonym Lexical Retrieval (Evidence Gate: Refused)',
       citations: [],
       detailed_explanation: isTe
         ? 'రోగి భద్రత కోసం, ఆమోదిత పత్రాలలో ప్రత్యక్ష ఆధారం లేని ప్రశ్నలకు ఆరోగ్య వాయిస్ ఎల్లప్పుడూ సమాధానం ఇవ్వడానికి నిరాకరిస్తుంది.'
@@ -1480,7 +2032,7 @@ app.post('/api/conversations/:id/messages', async (req: Request, res: Response) 
 
     conv.messages.push(noEvidenceMsg);
     conv.updated_at = new Date().toISOString();
-    saveStoreToDisk();
+    appendMessageDeltaToWal(conv, [userMsg, noEvidenceMsg]);
     res.json(noEvidenceMsg);
     return;
   }
@@ -1562,6 +2114,8 @@ app.post('/api/conversations/:id/messages', async (req: Request, res: Response) 
 
   // Grounded LLM Generation using Gemini (Behavior explicitly controlled by evidenceStrength)
   if (aiClient) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
     try {
       const strengthDirective =
         evidenceStrength === 'Weak'
@@ -1609,31 +2163,30 @@ STRICT RULES:
 
       const prompt = `User question: "${text}"
 Target language: ${isTe ? 'Telugu (తెలుగు)' : 'English'}
-Pre-Answer Evidence Assessment: ${evidenceStrength} (Cosine Score: ${evaluation.primaryScore}, Concept Coverage: ${Math.round(evaluation.coverageRatio * 100)}%, Uncovered Concepts: [${missingGapText || 'None'}])
+Pre-Answer Evidence Assessment: ${evidenceStrength} (Alignment Score: ${evaluation.primaryScore}, Concept Coverage: ${Math.round(evaluation.coverageRatio * 100)}%, Uncovered Concepts: [${missingGapText || 'None'}])
 
 REVIEWED EVIDENCE CONTEXT:
 ${evidenceContext}
 
 Return valid JSON only.`;
 
-      const timeoutPromise = new Promise<null>((_, reject) =>
-        setTimeout(() => reject(new Error('LLM response timeout (5s)')), 5000)
-      );
-
-      const genPromise = aiClient.models.generateContent({
-        model: 'gemini-3.8-flash',
+      const genResult: any = await aiClient.models.generateContent({
+        model: DEFAULT_GEMINI_MODEL,
         contents: prompt,
         config: {
           systemInstruction,
           responseMimeType: 'application/json',
-          temperature: 0.05,
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          abortSignal: controller.signal,
         },
       });
-
-      const genResult: any = await Promise.race([genPromise, timeoutPromise]);
       const responseText = genResult?.text;
 
       if (responseText) {
+        llmRuntimeStatus.working = true;
+        llmRuntimeStatus.last_checked_at = new Date().toISOString();
+        llmRuntimeStatus.last_error = null;
+
         const parsed = JSON.parse(responseText);
         const candidateShort = String(parsed.short_answer || '').trim();
         const candidateDetail = String(parsed.detailed_explanation || '').trim();
@@ -1644,7 +2197,7 @@ Return valid JSON only.`;
           ? parsed.questions_for_doctor.map((q: any) => String(q || '').trim()).filter(Boolean)
           : [];
 
-        // POST-GENERATION STRICT GROUNDING CHECK across ALL text fields (including limitations, consultation_recommendation, questions_for_doctor)
+        // POST-GENERATION STRICT GROUNDING CHECK across ALL text fields
         const allGeneratedText = [
           candidateShort,
           candidateDetail,
@@ -1674,8 +2227,14 @@ Return valid JSON only.`;
           if (candidateQuestions.length > 0) questionsForDoctor = candidateQuestions;
         }
       }
-    } catch (err) {
-      console.log('Using deterministic grounded synthesis:', (err as any)?.message || err);
+    } catch (err: any) {
+      const reason = err?.name === 'AbortError' ? 'Gemini request timed out after 5s and was aborted' : String(err?.message || err);
+      llmRuntimeStatus.working = false;
+      llmRuntimeStatus.last_checked_at = new Date().toISOString();
+      llmRuntimeStatus.last_error = reason;
+      console.warn(`[Gemini] LLM generation failed (${DEFAULT_GEMINI_MODEL}); falling back to deterministic source quotes:`, reason);
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
@@ -1699,7 +2258,7 @@ Return valid JSON only.`;
       consultation_recommendation: consultationRecommendation,
       missing_topics: evaluation.missingTerms,
       similarity_score: primaryMatch.similarity_score,
-      retrieval_method: '1024-Dim Dense Subword Cosine Retrieval (LLM Verification Refusal)',
+      retrieval_method: 'Hybrid Subword + Synonym Lexical Retrieval (LLM Verification Refusal)',
       citations: [],
       detailed_explanation: detailedExplanation || (isTe
         ? 'సమీక్షించిన పత్రాలు మీ ప్రశ్నకు తగిన ఆధారాలను అందించడం లేదు.'
@@ -1712,7 +2271,7 @@ Return valid JSON only.`;
     };
     conv.messages.push(refusedMsg);
     conv.updated_at = new Date().toISOString();
-    saveStoreToDisk();
+    appendMessageDeltaToWal(conv, [userMsg, refusedMsg]);
     res.json(refusedMsg);
     return;
   }
@@ -1821,14 +2380,14 @@ Return valid JSON only.`;
     detailed_explanation: detailedExplanation,
     questions_to_ask_doctor: questionsForDoctor,
     similarity_score: primaryMatch.similarity_score,
-    retrieval_method: '1024-Dim Dense Subword Cosine Retrieval (In-Memory Vector Store)',
+    retrieval_method: 'Hybrid Subword + Synonym Lexical Retrieval (In-Memory)',
     audio_status: 'ready',
     created_at: new Date().toISOString(),
   };
 
   conv.messages.push(assistantMsg);
   conv.updated_at = new Date().toISOString();
-  saveStoreToDisk();
+  appendMessageDeltaToWal(conv, [userMsg, assistantMsg]);
   res.json(assistantMsg);
 });
 
@@ -1868,15 +2427,15 @@ app.post('/api/messages/:id/speech', (req: Request, res: Response) => {
 // 11. POST /api/messages/:id/feedback (Reporting & Safety Logging)
 app.post('/api/messages/:id/feedback', (req: Request, res: Response) => {
   const { id } = req.params;
-  const { category, user_comment, question_text = '', answer_text = '' } = req.body;
+  const { category, user_comment, question_text = '', answer_text = '' } = req.body || {};
 
   const newReport: FeedbackReport = {
     id: 'report_' + Date.now(),
-    message_id: id,
-    question_text,
-    answer_text,
+    message_id: String(id).slice(0, 64),
+    question_text: String(question_text || '').slice(0, MAX_MESSAGE_LENGTH),
+    answer_text: String(answer_text || '').slice(0, 2000),
     category: category || 'unsupported_claim',
-    user_comment: user_comment || '',
+    user_comment: String(user_comment || '').slice(0, MAX_MESSAGE_LENGTH),
     status: 'pending',
     created_at: new Date().toISOString(),
   };
@@ -1944,10 +2503,10 @@ app.get('/api/system/stack', (_req: Request, res: Response) => {
     components: STACK_COMPONENTS,
     pipeline_flow: [
       { step: 1, name: 'Hearing', provider: 'Web Speech ASR + Whisper API', link: 'https://github.com/openai/whisper' },
-      { step: 2, name: 'Vector Projection', provider: '1024-Dim Dense Subword (BGE-M3 Schema)', link: 'https://huggingface.co/BAAI/bge-m3' },
-      { step: 3, name: 'Retrieval Store', provider: 'In-Memory Partitioned Index (Chroma Schema)', link: 'https://www.trychroma.com' },
-      { step: 4, name: 'Evidence Gate', provider: 'Pre-Answer Strength & Coverage Calibrator', link: 'https://aistudio.google.com' },
-      { step: 5, name: 'Brain (API)', provider: 'Gemini 3.8 Flash', link: 'https://aistudio.google.com' },
+      { step: 2, name: 'Vector Projection', provider: '1024-Dim Subword Hashing + Synonym Expansion', link: 'https://huggingface.co/BAAI/bge-m3' },
+      { step: 3, name: 'Retrieval Store', provider: 'In-Memory Hybrid Dense + Lexical Index', link: 'https://www.trychroma.com' },
+      { step: 4, name: 'Evidence Gate', provider: 'Pre-Answer Strength & Whole-Word Coverage Calibrator', link: 'https://aistudio.google.com' },
+      { step: 5, name: 'Brain (API)', provider: 'Gemini 4 Hydrogen (gemini-4-hydrogen)', link: 'https://aistudio.google.com' },
       { step: 6, name: 'Brain (Local)', provider: 'Ollama (Adapter Ready)', link: 'https://ollama.com' },
       { step: 7, name: 'Speaking', provider: '16-bit PCM WAV Synth + Web Speech', link: 'https://huggingface.co/rhasspy/piper-voices' },
       { step: 8, name: 'Streaming Pattern', provider: 'Pipecat Architecture (Adapter Ready)', link: 'https://github.com/pipecat-ai/pipecat' },
@@ -1973,24 +2532,24 @@ app.get('/api/tools/config', requireAdminAuth, (_req: Request, res: Response) =>
         link: 'https://github.com/openai/whisper'
       },
       embeddings: {
-        name: '1024-Dim Dense Subword Vectorizer (BGE-M3 Compatible Schema)',
+        name: '1024-Dim Subword Hashing + Synonym Expansion (In-Memory)',
         dimensions: 1024,
         max_tokens: 8192,
         status: 'online',
         link: 'https://huggingface.co/BAAI/bge-m3'
       },
       retrieval: {
-        name: 'In-Memory Partitioned Vector Index (ChromaDB Compatible Schema)',
+        name: 'In-Memory Hybrid Dense + Lexical Index',
         collections: ['approved_health_knowledge', 'scheme_knowledge'],
         total_vectors: db.documents.reduce((acc, d) => acc + d.chunks.length, 0),
         status: 'online',
         link: 'https://www.trychroma.com'
       },
       brain: {
-        name: db.toolConfig.brain_provider === 'gemini' ? 'Gemini 3.8 Flash (Cloud API)' : 'Ollama (Local Adapter)',
-        model: db.toolConfig.brain_provider === 'gemini' ? 'gemini-3.8-flash' : 'llama3-health-8b:latest',
+        name: db.toolConfig.brain_provider === 'gemini' ? 'Gemini 4 Hydrogen (Cloud API)' : 'Ollama (Local Adapter)',
+        model: db.toolConfig.brain_provider === 'gemini' ? DEFAULT_GEMINI_MODEL : 'llama3-health-8b:latest',
         endpoint: db.toolConfig.brain_provider === 'gemini' ? 'https://aistudio.google.com' : 'http://localhost:11434',
-        status: 'online',
+        status: llmRuntimeStatus.working === false ? 'degraded' : 'online',
         link: db.toolConfig.brain_provider === 'gemini' ? 'https://aistudio.google.com' : 'https://ollama.com'
       },
       speaking: {
@@ -2039,16 +2598,21 @@ app.patch('/api/tools/config', requireAdminAuth, (req: Request, res: Response) =
   res.json({ success: true, config: db.toolConfig });
 });
 
-// POST /api/tools/chroma/query (Vector Store Explorer using 1024-Dim Cosine Similarity)
+// POST /api/tools/chroma/query (Hybrid Dense + Lexical Index Explorer)
 app.post('/api/tools/chroma/query', (req: Request, res: Response) => {
-  const { query, collection = 'all', top_k = 4 } = req.body;
-  if (!query) {
+  const { query, collection = 'all', top_k = 4 } = req.body || {};
+  if (!query || typeof query !== 'string' || !query.trim()) {
     res.status(400).json({ error: 'Query string is required' });
     return;
   }
+  if (query.trim().length > MAX_MESSAGE_LENGTH) {
+    res.status(400).json({ error: `Query exceeds ${MAX_MESSAGE_LENGTH}-character limit.` });
+    return;
+  }
 
-  const matches = retrieveApprovedChunks(query, 'en', collection);
-  const topMatches = matches.slice(0, Number(top_k) || 4).map((m) => ({
+  const safeTopK = Math.max(1, Math.min(20, Number(top_k) || 4));
+  const matches = retrieveApprovedChunks(query.trim(), 'en', collection);
+  const topMatches = matches.slice(0, safeTopK).map((m) => ({
     id: m.chunk.id,
     document_id: m.doc.id,
     document_title: m.doc.title,
@@ -2066,20 +2630,24 @@ app.post('/api/tools/chroma/query', (req: Request, res: Response) => {
   }));
 
   res.json({
-    query,
+    query: query.trim(),
     collection,
     vector_dimension: VECTOR_DIM,
-    retriever: '1024-Dim Dense Subword Cosine Vector Index',
+    retriever: 'Hybrid Subword + Synonym Lexical Index (In-Memory)',
     total_searched: db.documents.reduce((acc, d) => acc + d.chunks.length, 0),
     matches: topMatches
   });
 });
 
-// POST /api/tools/bge-m3/embed (Multilingual Embedding Vectorizer)
+// POST /api/tools/bge-m3/embed (Subword Dense Vectorizer)
 app.post('/api/tools/bge-m3/embed', (req: Request, res: Response) => {
-  const { text, language = 'en' } = req.body;
-  if (!text) {
+  const { text, language = 'en' } = req.body || {};
+  if (!text || typeof text !== 'string' || !text.trim()) {
     res.status(400).json({ error: 'Text input is required' });
+    return;
+  }
+  if (text.trim().length > MAX_MESSAGE_LENGTH) {
+    res.status(400).json({ error: `Text input exceeds ${MAX_MESSAGE_LENGTH}-character limit.` });
     return;
   }
 
@@ -2089,11 +2657,11 @@ app.post('/api/tools/bge-m3/embed', (req: Request, res: Response) => {
   res.json({
     text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
     language,
-    model: 'BAAI/bge-m3 (Dense 1024-dim)',
+    model: '1024-Dim Subword Hashing Vectorizer (In-Memory)',
     dense_dimensions: VECTOR_DIM,
     sample_vector_preview: sampleVectorPreview,
     token_count: Math.ceil(text.length / 4),
-    pooling: 'dense_cls_norm',
+    pooling: 'l2_unit_norm',
     cosine_norm: 1.0,
   });
 });
@@ -2189,14 +2757,16 @@ function generateAcousticSpeechWav(text: string, isTelugu: boolean, speedMultipl
 
 // POST /api/tools/piper/synthesize & POST /api/speech/synthesize (Piper Neural TTS Engine)
 const handlePiperSynthesize = (req: Request, res: Response) => {
-  const { text = '', voice = db.toolConfig.piper_voice, speed = 1.0, language } = req.body;
-  const isTe = voice.includes('te') || language === 'te';
-  const audioText = text || (isTe ? 'ఆరోగ్య వాయిస్ అధికారిక ఆరోగ్య సహాయకుడు.' : 'Arogya Voice verified healthcare information assistant.');
+  const { text = '', voice = db.toolConfig.piper_voice, speed = 1.0, language } = req.body || {};
+  const isTe = String(voice).includes('te') || language === 'te';
+  const rawAudioText = typeof text === 'string' && text.trim()
+    ? text.trim().slice(0, 2000)
+    : (isTe ? 'ఆరోగ్య వాయిస్ అధికారిక ఆరోగ్య సహాయకుడు.' : 'Arogya Voice verified healthcare information assistant.');
 
-  const { buffer, base64, durationSec } = generateAcousticSpeechWav(audioText, isTe, speed);
+  const { buffer, base64, durationSec } = generateAcousticSpeechWav(rawAudioText, isTe, Number(speed) || 1.0);
 
   res.json({
-    engine: 'Piper Neural Voice Synthesizer',
+    engine: '16-bit PCM WAV Acoustic Synth',
     voice_model: voice,
     sample_rate_hz: 22050,
     speed,
@@ -2204,10 +2774,10 @@ const handlePiperSynthesize = (req: Request, res: Response) => {
     audio_base64: base64,
     audio_stream_url: `/api/speech/stream?t=${Date.now()}`,
     audio_duration_seconds: durationSec,
-    phoneme_count: audioText.length * 2,
+    phoneme_count: rawAudioText.length * 2,
     latency_ms: 28,
     source_link: 'https://huggingface.co/rhasspy/piper-voices',
-    text_processed: audioText,
+    text_processed: rawAudioText,
   });
 };
 app.post('/api/tools/piper/synthesize', handlePiperSynthesize);
@@ -2215,7 +2785,7 @@ app.post('/api/speech/synthesize', handlePiperSynthesize);
 
 // GET /api/speech/stream (Raw Binary WAV Streaming Endpoint)
 app.get('/api/speech/stream', (req: Request, res: Response) => {
-  const text = String(req.query.text || 'Arogya Voice healthcare guidance.');
+  const text = String(req.query.text || 'Arogya Voice healthcare guidance.').slice(0, 1000);
   const isTe = req.query.lang === 'te';
   const speed = Number(req.query.speed) || 1.0;
 
@@ -2360,7 +2930,7 @@ app.post('/api/tools/eval/run', (_req: Request, res: Response) => {
     eval_suite: 'Arogya Voice Clinical Evidence & Safety Benchmark Suite',
     colab_link: 'https://colab.research.google.com',
     hackathon_link: 'https://code-for-humanity.devpost.com/',
-    engine: '1024-Dim Dense Subword Cosine Vector Store + Evidence Strength & Abstention Gateways',
+    engine: 'Hybrid Subword + Synonym Lexical Cosine Index + Evidence Strength & Abstention Gateways',
     results: result
   });
 });
@@ -2554,20 +3124,28 @@ app.get('/api/admin/metrics', requireAdminAuth, (_req: Request, res: Response) =
 
 // 17. POST /api/admin/documents (Protected with ADMIN_TOKEN)
 app.post('/api/admin/documents', requireAdminAuth, (req: Request, res: Response) => {
-  const { title, publisher, category, topic, jurisdiction, original_url, content_text } = req.body;
+  const { title, publisher, category, topic, jurisdiction, original_url, content_text } = req.body || {};
 
   if (!title || !publisher || !topic) {
     res.status(400).json({ error: 'Title, publisher, and topic are required' });
     return;
   }
 
-  const docId = 'doc_' + Date.now();
-  const textBody = content_text || 'Official health guideline excerpt provided by ingestion worker.';
+  const rawBody = typeof content_text === 'string' && content_text.trim()
+    ? content_text.trim()
+    : 'Official health guideline excerpt provided by ingestion worker.';
+  if (rawBody.length > MAX_ADMIN_DOC_LENGTH) {
+    res.status(400).json({ error: `Document text exceeds the ${MAX_ADMIN_DOC_LENGTH}-character limit.` });
+    return;
+  }
 
-  // Paragraph Chunk Generator for In-Memory Dense Vector Index
+  const docId = 'doc_' + Date.now();
+  const textBody = rawBody;
+
+  // Paragraph Chunk Generator for In-Memory Hybrid Index
   const paragraphs = textBody.split(/\n\n+/).filter((p: string) => p.trim().length > 30);
   const effectiveParagraphs = paragraphs.length > 0 ? paragraphs : [textBody.trim()];
-  const chunks: DocumentChunk[] = effectiveParagraphs.map((p: string, idx: number) => ({
+  const chunks: DocumentChunk[] = effectiveParagraphs.slice(0, 50).map((p: string, idx: number) => ({
     id: `chunk_${docId}_${idx + 1}`,
     version_id: 'v1.0',
     document_id: docId,

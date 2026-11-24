@@ -385,11 +385,11 @@ export const AnswerCard: React.FC<AnswerCardProps> = ({
             </div>
             {message.similarity_score !== undefined && message.similarity_score > 0 && (
               <span
-                title="Calculated via 1024-dimensional normalized dense semantic projection (unit hypersphere dot-product / cosine similarity)"
+                title="Calculated via hybrid subword, synonym, and lexical cosine similarity over approved chunks"
                 className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-teal-100 text-teal-900 border border-teal-200"
               >
                 <Sparkles className="w-3 h-3 mr-1 text-teal-700" />
-                {Math.round(message.similarity_score * 100)}% Cosine Match · Dense Hypersphere Retrieval
+                {Math.round(message.similarity_score * 100)}% Cosine Match · Hybrid Subword + Lexical Retrieval
               </span>
             )}
           </div>

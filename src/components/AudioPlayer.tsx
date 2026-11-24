@@ -23,7 +23,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
   const [speed, setSpeed] = useState<number>(defaultSpeed);
   const [activeEngine, setActiveEngine] = useState<'piper' | 'browser'>(preferredEngine);
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [speechNotice, setSpeechNotice] = useState<string | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const speeds = [0.75, 1.0, 1.25];
@@ -45,6 +45,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   };
 
   const playPiperAudio = async (currentSpeed: number) => {
+    setSpeechNotice(null);
     setIsLoadingAudio(true);
     try {
       // Fetch real acoustic WAV binary from server
@@ -52,8 +53,6 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
       const data = await api.synthesizePiper(textToSpeak, voice, currentSpeed);
 
       if (data && data.audio_base64) {
-        setAudioUrl(data.audio_base64);
-
         if (!audioRef.current) {
           audioRef.current = new Audio(data.audio_base64);
         } else {
@@ -63,7 +62,6 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
         audioRef.current.playbackRate = currentSpeed;
         audioRef.current.onended = () => setIsPlaying(false);
         audioRef.current.onerror = () => {
-          // Graceful fallback to browser speech synthesis
           console.warn('Audio element error, falling back to Web Speech API');
           fallbackToBrowserSpeech(currentSpeed);
         };
@@ -83,6 +81,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   };
 
   const fallbackToBrowserSpeech = (currentSpeed: number) => {
+    setSpeechNotice(null);
     setActiveEngine('browser');
     setIsPlaying(true);
     speechSynthesizer.speak(
@@ -91,7 +90,12 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
       currentSpeed,
       () => setIsPlaying(true),
       () => setIsPlaying(false),
-      () => setIsPlaying(false)
+      (err: any) => {
+        setIsPlaying(false);
+        if (err?.message) {
+          setSpeechNotice(err.message);
+        }
+      }
     );
   };
 
@@ -129,80 +133,87 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   const toggleEngine = () => {
     const nextEngine = activeEngine === 'piper' ? 'browser' : 'piper';
     setActiveEngine(nextEngine);
+    setSpeechNotice(null);
     if (isPlaying) {
       stopAllAudio();
     }
   };
 
   return (
-    <div
-      className={`inline-flex flex-wrap items-center gap-1.5 bg-slate-100/90 border border-slate-200/80 rounded-xl px-2.5 py-1.5 shadow-xs ${className}`}
-    >
-      <button
-        type="button"
-        disabled={isLoadingAudio}
-        onClick={handlePlayToggle}
-        aria-label={isPlaying ? 'Pause spoken answer' : 'Listen to answer'}
-        className={`flex items-center space-x-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all shadow-xs ${
-          isLoadingAudio
-            ? 'bg-slate-300 text-slate-700 cursor-wait'
-            : isPlaying
-            ? 'bg-indigo-600 hover:bg-indigo-700 text-white animate-pulse'
-            : 'bg-teal-700 hover:bg-teal-800 text-white'
-        }`}
-      >
-        {isLoadingAudio ? (
-          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-        ) : isPlaying ? (
-          <Pause className="w-3.5 h-3.5 fill-current" />
-        ) : (
-          <Play className="w-3.5 h-3.5 fill-current" />
-        )}
-        <span>
-          {isLoadingAudio
-            ? isTe ? 'సిద్ధమవుతోంది...' : 'Synthesizing...'
-            : isPlaying
-            ? isTe ? 'పాజ్' : 'Pause'
-            : isTe ? 'వినండి' : 'Read Aloud'}
-        </span>
-      </button>
-
-      {isPlaying && (
+    <div className={`inline-flex flex-col items-end gap-1 ${className}`}>
+      <div className="inline-flex flex-wrap items-center gap-1.5 bg-slate-100/90 border border-slate-200/80 rounded-xl px-2.5 py-1.5 shadow-xs">
         <button
           type="button"
-          onClick={handleStop}
-          aria-label="Stop audio"
-          className="p-1 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-200/60"
+          disabled={isLoadingAudio}
+          onClick={handlePlayToggle}
+          aria-label={isPlaying ? 'Pause spoken answer' : 'Listen to answer'}
+          className={`flex items-center space-x-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all shadow-xs ${
+            isLoadingAudio
+              ? 'bg-slate-300 text-slate-700 cursor-wait'
+              : isPlaying
+              ? 'bg-indigo-600 hover:bg-indigo-700 text-white animate-pulse'
+              : 'bg-teal-700 hover:bg-teal-800 text-white'
+          }`}
         >
-          <Square className="w-3.5 h-3.5 fill-current" />
+          {isLoadingAudio ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : isPlaying ? (
+            <Pause className="w-3.5 h-3.5 fill-current" />
+          ) : (
+            <Play className="w-3.5 h-3.5 fill-current" />
+          )}
+          <span>
+            {isLoadingAudio
+              ? isTe ? 'సిద్ధమవుతోంది...' : 'Synthesizing...'
+              : isPlaying
+              ? isTe ? 'పాజ్' : 'Pause'
+              : isTe ? 'వినండి' : 'Read Aloud'}
+          </span>
         </button>
+
+        {isPlaying && (
+          <button
+            type="button"
+            onClick={handleStop}
+            aria-label="Stop audio"
+            className="p-1 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-200/60"
+          >
+            <Square className="w-3.5 h-3.5 fill-current" />
+          </button>
+        )}
+
+        {/* Speed Selector */}
+        <button
+          type="button"
+          onClick={handleSpeedCycle}
+          title="Playback speed"
+          className="px-2 py-1 text-[11px] font-bold text-slate-600 hover:text-teal-900 bg-white border border-slate-200 rounded-md transition-colors flex items-center space-x-0.5"
+        >
+          <FastForward className="w-2.5 h-2.5 text-slate-400" />
+          <span>{speed}x</span>
+        </button>
+
+        {/* Engine Switcher Pill */}
+        <button
+          type="button"
+          onClick={toggleEngine}
+          title={`Click to switch between Piper Acoustic WAV and Browser Speech. Current: ${activeEngine.toUpperCase()}`}
+          className={`px-2 py-0.5 text-[10px] font-bold rounded-md border flex items-center space-x-1 transition-all ${
+            activeEngine === 'piper'
+              ? 'bg-teal-50 border-teal-300 text-teal-800'
+              : 'bg-slate-50 border-slate-200 text-slate-600'
+          }`}
+        >
+          <Volume2 className="w-2.5 h-2.5 text-teal-700" />
+          <span>{activeEngine === 'piper' ? 'Piper WAV' : 'WebSpeech'}</span>
+        </button>
+      </div>
+
+      {speechNotice && (
+        <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1 max-w-xs text-right">
+          {speechNotice}
+        </div>
       )}
-
-      {/* Speed Selector */}
-      <button
-        type="button"
-        onClick={handleSpeedCycle}
-        title="Playback speed"
-        className="px-2 py-1 text-[11px] font-bold text-slate-600 hover:text-teal-900 bg-white border border-slate-200 rounded-md transition-colors flex items-center space-x-0.5"
-      >
-        <FastForward className="w-2.5 h-2.5 text-slate-400" />
-        <span>{speed}x</span>
-      </button>
-
-      {/* Engine Switcher Pill */}
-      <button
-        type="button"
-        onClick={toggleEngine}
-        title={`Click to switch between Piper Neural TTS (WAV) and Browser Speech. Current: ${activeEngine.toUpperCase()}`}
-        className={`px-2 py-0.5 text-[10px] font-bold rounded-md border flex items-center space-x-1 transition-all ${
-          activeEngine === 'piper'
-            ? 'bg-teal-50 border-teal-300 text-teal-800'
-            : 'bg-slate-50 border-slate-200 text-slate-600'
-        }`}
-      >
-        <Volume2 className="w-2.5 h-2.5 text-teal-700" />
-        <span>{activeEngine === 'piper' ? 'Piper Neural WAV' : 'WebSpeech'}</span>
-      </button>
     </div>
   );
 };

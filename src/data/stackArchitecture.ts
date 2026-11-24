@@ -20,17 +20,17 @@ export const STACK_COMPONENTS: StackComponent[] = [
   {
     part: 'Brain (Live Cloud LLM + Gateways)',
     use: 'Evidence-Validated Grounded Synthesis',
-    provider: 'Gemini 3.8 Flash (Google AI Studio)',
+    provider: 'Gemini 4 Hydrogen (gemini-4-hydrogen)',
     link: 'https://aistudio.google.com',
-    role: 'Live cloud generation strictly bounded to retrieved excerpts with pre-answer evidence calibration and post-answer grounding checks.',
+    role: 'Live cloud generation strictly bounded to retrieved excerpts with pre-answer evidence calibration, abortable timeouts, and post-answer grounding checks.',
     status: 'active',
   },
   {
     part: 'Vector Retrieval (Live In-App Engine)',
-    use: 'Dense Subword Cosine Similarity',
-    provider: '1024-Dim Hypersphere Vector Index (BGE-M3 / ChromaDB-Compatible Schema)',
+    use: 'Hybrid Subword + Synonym Lexical Cosine Index',
+    provider: '1024-Dim Subword Vector + Bilingual Synonym Index (In-Memory)',
     link: 'https://huggingface.co/BAAI/bge-m3',
-    role: 'Live in-memory 1024-dim subword cosine similarity + concept coverage analyzer isolating approved WHO/PAHO and PM-JAY collections.',
+    role: 'Live in-memory 1024-dim subword cosine similarity + English/Telugu synonym expansion + whole-word concept coverage isolating approved WHO/PAHO and PM-JAY collections.',
     status: 'active',
   },
   {

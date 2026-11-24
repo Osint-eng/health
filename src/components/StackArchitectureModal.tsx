@@ -114,11 +114,11 @@ export const StackArchitectureModal: React.FC<StackArchitectureModalProps> = ({
           <div className="flex items-center justify-between text-[11px] font-semibold text-slate-700 overflow-x-auto pb-1 space-x-1">
             <span className="bg-white px-2 py-1 rounded border border-slate-200 shrink-0">🎤 WebSpeech ASR</span>
             <span className="text-slate-400">→</span>
-            <span className="bg-white px-2 py-1 rounded border border-slate-200 shrink-0">🧬 1024-Dim Vector</span>
+            <span className="bg-white px-2 py-1 rounded border border-slate-200 shrink-0">🧬 Hybrid Lexical Index</span>
             <span className="text-slate-400">→</span>
             <span className="bg-white px-2 py-1 rounded border border-amber-300 text-amber-900 font-bold shrink-0">⚖️ Evidence Gate</span>
             <span className="text-slate-400">→</span>
-            <span className="bg-white px-2 py-1 rounded border border-teal-300 text-teal-900 font-bold shrink-0">🧠 Gemini 3.8 Flash</span>
+            <span className="bg-white px-2 py-1 rounded border border-teal-300 text-teal-900 font-bold shrink-0">🧠 Gemini 4 Hydrogen</span>
             <span className="text-slate-400">→</span>
             <span className="bg-white px-2 py-1 rounded border border-slate-200 shrink-0">🔊 PCM WAV / TTS</span>
           </div>

@@ -65,12 +65,15 @@ export const AskPage: React.FC<AskPageProps> = ({
   const t = TRANSLATIONS[language];
   const isTe = language === 'te';
 
+  const MAX_MESSAGE_LENGTH = 1000;
+
   // Assistant State Machine
   const [assistantState, setAssistantState] = useState<AssistantState>('idle');
   const [inputText, setInputText] = useState('');
   const [transcriptDraft, setTranscriptDraft] = useState('');
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [errorMessage, setErrorMessage] = useState('');
+  const [speechNotice, setSpeechNotice] = useState('');
 
   // Modals for Source detail and Reporting
   const [activeCitation, setActiveCitation] = useState<Citation | null>(null);
@@ -199,6 +202,15 @@ export const AskPage: React.FC<AskPageProps> = ({
     const textToSend = (queryText || transcriptDraft || inputText).trim();
     if (!textToSend) return;
 
+    if (textToSend.length > MAX_MESSAGE_LENGTH) {
+      setErrorMessage(
+        isTe
+          ? `ప్రశ్న ${MAX_MESSAGE_LENGTH} అక్షరాలకు మించకూడదు (ప్రస్తుతం ${textToSend.length}). దయచేసి సంక్షిప్తంగా అడగండి.`
+          : `Question cannot exceed ${MAX_MESSAGE_LENGTH} characters (currently ${textToSend.length}). Please shorten your question.`
+      );
+      return;
+    }
+
     if (!currentConversation) {
       try {
         const newConv = await api.createConversation(
@@ -222,6 +234,7 @@ export const AskPage: React.FC<AskPageProps> = ({
     transcriptRef.current = '';
     setTranscriptDraft('');
     setErrorMessage('');
+    setSpeechNotice('');
 
     // State sequence with clean timer cancellation
     setAssistantState('searching_sources');
@@ -242,7 +255,14 @@ export const AskPage: React.FC<AskPageProps> = ({
       setAssistantState('ready_speaking');
       // Auto read answer aloud via TTS
       if (assistantMsg.spoken_text) {
-        speechSynthesizer.speak(assistantMsg.spoken_text, language);
+        speechSynthesizer.speak(
+          assistantMsg.spoken_text,
+          language,
+          1.0,
+          undefined,
+          undefined,
+          (err) => setSpeechNotice(err.message)
+        );
       }
 
       setTimeout(() => {
@@ -527,6 +547,21 @@ export const AskPage: React.FC<AskPageProps> = ({
           </div>
         )}
 
+        {/* Calm Speech Playback Notice (e.g., browser lacking Telugu voice) */}
+        {speechNotice && (
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 flex items-start space-x-2">
+            <Volume2 className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+            <div className="flex-1">{speechNotice}</div>
+            <button
+              type="button"
+              onClick={() => setSpeechNotice('')}
+              className="text-xs text-amber-700 hover:text-amber-950 font-bold"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 
@@ -577,12 +612,23 @@ export const AskPage: React.FC<AskPageProps> = ({
             <input
               type="text"
               value={inputText}
+              maxLength={MAX_MESSAGE_LENGTH}
               onChange={(e) => setInputText(e.target.value)}
               placeholder={isTe ? t.composerPlaceholder : 'Type your question or tap the mic...'}
               className={`flex-1 text-xs sm:text-sm text-slate-900 placeholder-slate-400 bg-transparent border-none focus:outline-none ${
                 isTe ? 'font-telugu' : ''
               }`}
             />
+
+            {inputText.length >= 800 && (
+              <span
+                className={`text-[10px] font-semibold px-1.5 shrink-0 ${
+                  inputText.length >= MAX_MESSAGE_LENGTH ? 'text-rose-600' : 'text-amber-600'
+                }`}
+              >
+                {inputText.length}/{MAX_MESSAGE_LENGTH}
+              </span>
+            )}
 
             {/* Send button */}
             <button

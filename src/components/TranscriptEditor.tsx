@@ -46,6 +46,7 @@ export const TranscriptEditor: React.FC<TranscriptEditorProps> = ({
 
       <textarea
         value={transcript}
+        maxLength={1000}
         onChange={(e) => onTranscriptChange(e.target.value)}
         rows={2}
         className={`w-full p-2.5 text-sm md:text-base text-slate-800 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-600/30 transition-all resize-none ${

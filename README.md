@@ -8,7 +8,7 @@ Arogya Voice is an evidence-disciplined, multilingual (English & Telugu) voice h
 ### 🎯 Four Core Pillars
 1. **Evidence Discipline (Refusal as a Strength):** Every query passes a pre-answer Evidence Gate (`Strong`, `Moderate`, `Weak`, `None`) backed by cosine similarity + concept coverage. Weak evidence triggers cautious refusal-first hedging; missing evidence triggers an immediate hard refusal with zero hallucination.
 2. **Clinical Abstention:** Strictly refuses personal diagnoses, drug dosages, and prescriptions (`needs_professional`), providing doctor consultation questions instead.
-3. **Emergency Routing:** Immediately detects red-flag symptoms (chest pain, stroke signs, breathing distress, severe bleeding) and routes users to **108 / 112** emergency services.
+3. **Emergency Routing:** Immediately detects red-flag symptoms (chest pain, stroke signs, breathing distress, severe bleeding) and routes users to **108 / 112** emergency services, and routes self-harm/crisis distress to **Tele-MANAS (14416)** / **9152987821**.
 4. **Personal Emergency Medical ID:** Stores Blood Group, Allergies, Chronic Conditions, Emergency Contact, and ABHA ID locally and surfaces them automatically on the Urgent Help page and inline during emergency triage.
 
 ---
@@ -56,11 +56,11 @@ The application runs locally on **http://localhost:3000**.
 | :--- | :--- | :--- | :--- |
 | **Hearing (ASR)** | **WebSpeech + Whisper Endpoint** | Browser Web Speech API live streaming transcription with acoustic waveform feedback, backed by a `/api/speech/transcribe` Whisper-compatible endpoint for audio capture payloads. | Transcribes speech in English and Indic accents (Telugu) with word-level confidence and live transcript review before submission. |
 | **Speaking (TTS)** | **16-bit PCM WAV Synth & WebSpeech** | Dual-engine acoustic architecture: Server generates real 16-bit PCM binary RIFF/WAVE audio buffers (`audio/wav`, 22050 Hz) at `/api/speech/synthesize` & `/api/speech/stream`, paired with instant browser WebSpeech playback. | Crisp, low-latency speech synthesis in English and Telugu with speed control (0.8x, 1.0x, 1.2x) and pause/stop controls. |
-| **Brain (Cloud)** | **Gemini 3.8 Flash** | `@google/genai` TypeScript SDK (`temperature: 0.05`) conditioned by deterministic Evidence Gates: strict source-only synthesis, refusal-first on weak evidence, emergency triage, and clinical abstention. | Generates concise, plain-language summaries strictly bounded by approved source chunks and post-checked for ungrounded numbers. |
-| **Vector Engine** | **1024-Dim Hypersphere Vector Index (ChromaDB Schema)** | In-memory 1024-dimensional normalized dense semantic projection with unit-hypersphere dot product ($\equiv$ Cosine Similarity), implementing ChromaDB-compatible chunk metadata and BGE-M3-style cross-lingual subword weighting. | Sub-20ms reproducible retrieval matching user inquiries to official WHO, PAHO, and PM-JAY chunks with concept coverage scoring. |
+| **Brain (Cloud)** | **Gemini 4 Hydrogen (`gemini-4-hydrogen`)** | `@google/genai` TypeScript SDK (`ThinkingLevel.LOW`, abortable 5s timeout) conditioned by deterministic Evidence Gates: strict source-only synthesis, refusal-first on weak evidence, emergency triage, and clinical abstention. Verified live via `GET /api/health`. | Generates concise, plain-language summaries strictly bounded by approved source chunks and post-checked for ungrounded numbers/units. |
+| **Retrieval Engine** | **Hybrid Subword + Synonym Lexical Index** | In-memory 1024-dim subword cosine index paired with whole-word clinical entity verification, ~115-entry English/Telugu medical synonym expansion, and stopword-filtered lexical overlap. | Sub-20ms reproducible retrieval matching English and Telugu inquiries to official WHO, PAHO, and PM-JAY chunks with concept coverage scoring. |
 | **Edge / Streaming Adapters** | **Ollama & Pipecat Patterns (Adapter-Ready)** | Open standard HTTP adapter interface (`/api/generate` schema) for offline Ollama Llama 3.2 edge nodes and event-driven Pipecat VAD audio chunking patterns. | Ready for offline PHC deployments and streaming audio orchestration without modifying core RAG contracts. |
-| **Persistent Store** | **Atomic JSON File Store** | Atomic file-locking persistence at `data/arogya_store.json` storing conversations, feedback reports, user personas, and custom ingested documents. | Production-grade durability surviving server restarts without external database setup. |
-| **Auth & Medical ID** | **Personas + Emergency Medical ID** | 4 pre-configured RBAC personas plus local Sign In & custom **Emergency Medical ID** card (Blood Group, Allergies, Chronic Conditions, Emergency Contact, ABHA ID). | Allows judges to test role-differentiated workflows and surfaces life-saving Medical ID details during urgent triage. |
+| **Persistent Store** | **Atomic Temp-File + WAL Store** | Atomic temp-file + `fsync` + `rename` snapshots (`data/arogya_store.json`) paired with an append-only message WAL (`data/messages_wal.ndjson`), corrupt-file quarantine, `100 KB` request cap, and `1,000`-char message cap. | Crash-safe persistence surviving server restarts without external database setup or full-store rewrites per message. |
+| **Auth & Medical ID** | **Session Isolation + Emergency Medical ID** | Session-scoped storage (`X-Session-Token`), `ADMIN_TOKEN`-gated admin/eval routes, plus local Sign In & custom **Emergency Medical ID** card (Blood Group, Allergies, Chronic Conditions, Emergency Contact, ABHA ID). | Keeps visitor sessions isolated while surfacing life-saving Medical ID details during urgent triage. |
 
 ---
 
@@ -126,7 +126,7 @@ To experience all major architectural layers and safety guardrails in 120 second
 1. In the search box or via voice recording, submit:  
    `"What are the emergency warning signs of severe dengue that require immediate hospitalization?"`
 2. **Review the Grounded Output:**
-   - Notice **Evidence Strength: Strong** and the **Cosine Match · Dense Vector Index** score badge.
+   - Notice **Evidence Strength: Strong** and the **Cosine Match · Hybrid Subword + Lexical Retrieval** score badge.
    - Read the exact supporting excerpt quoted directly from the **WHO Global Health Observatory** guidelines.
    - Click **"Play Audio"**: listen to playback, toggle between **Server PCM WAV** and **WebSpeech**, and test speed controls (`0.8x`, `1.0x`, `1.2x`).
 
@@ -167,11 +167,11 @@ Arogya Voice implements a multi-tier speech loop designed to work reliably acros
 [User Voice] ──> 🎤 Whisper ASR / WebSpeech ──> [Text Transcript]
                                                         │
                                                         ▼
-                                            [BGE-M3 + ChromaDB]
-                                            Dense Vector Retrieval
+                                            [Hybrid Subword + Lexical Index]
+                                            Approved Guideline Retrieval
                                                         │
                                                         ▼
-                                            [Gemini 3.8 Flash]
+                                            [Gemini 4 Hydrogen]
                                             Grounded Clinical RAG
                                                         │
                                                         ▼
@@ -192,9 +192,10 @@ Arogya Voice implements a multi-tier speech loop designed to work reliably acros
 
 ## 💾 Persistent Storage Architecture
 
-All user sessions, conversations, feedback reports, and admin document versions are automatically persisted to disk in **`data/arogya_store.json`**:
-- **Atomic File Writes:** Avoids database locking issues while preserving state across dev server restarts and deployments.
-- **Audit Queue:** User reports (e.g. flagged outdated guidance or unsupported claims) are stored permanently in the admin review queue.
+All user sessions, conversations, feedback reports, and admin document overrides are automatically persisted to disk using **`data/arogya_store.json`** and **`data/messages_wal.ndjson`**:
+- **Atomic Temp-File Snapshots + Append-Only WAL:** Appends message deltas to `data/messages_wal.ndjson` without rewriting the full snapshot on every turn, and writes periodic/shutdown checkpoints via temp-file + `fsync` + `rename` (quarantining corrupt files instead of silently overwriting).
+- **Input & Payload Bounds:** Enforces a `100 KB` JSON request limit and a `1,000`-character message cap (`MAX_MESSAGE_LENGTH`) across both API and UI.
+- **Health Diagnostics (`GET /api/health`):** Reports store writability and live `gemini-4-hydrogen` runtime status (`llm.working` / `llm.error`).
 - **Zero Cloud Telemetry of Audio:** Voice recordings are never stored on disk unless the user explicitly opts into data contribution in Settings.
 
 ---
@@ -247,19 +248,19 @@ Before generating any response, the system executes an automated multi-stage evi
 ### Core User Interface Flows:
 1. **Voice / Text Ask Workspace:**
    - Real-time audio waveform visualizer and speech-to-text transcript review.
-   - Grounded clinical answer cards displaying exact supporting excerpts, page/section citations, and vector similarity percentages (BGE-M3 / ChromaDB).
-   - Instant audio playback via neural voice synthesis (English & Telugu) with pause/resume controls.
+   - Grounded clinical answer cards displaying exact supporting excerpts, page/section citations, and retrieval similarity percentages.
+   - Instant audio playback via server WAV synthesis and sentence-chunked browser WebSpeech (with explicit notice when a desktop browser lacks a Telugu voice).
    - First-use "What Arogya Voice Will & Will Not Do" clinical boundary matrix.
 2. **Approved Health Library:**
    - Multi-topic catalog of official documents (Dengue, Malaria, Child Growth Standards, Fever Guidelines, Ayushman Bharat PM-JAY).
    - In-depth reader view with font scaling, executive summaries, chunk breakdown, and a direct "Ask Question About This Article" bridge.
 3. **Urgent Help & Emergency Dispatch:**
-   - One-tap quick dialing cards for emergency services: 108 (National Ambulance), 112 (Emergency Response), 102 (Free Pregnancy/Infant Ambulance), 1075 (Health Helpline), and 14555 (PM-JAY).
+   - One-tap quick dialing cards for emergency services: 108 (National Ambulance), 112 (Emergency Response), 102 (Free Pregnancy/Infant Ambulance), 1075 (Health Helpline), 14555 (PM-JAY), and **14416 (Tele-MANAS Mental Health)**.
    - Acute warning signs red-flag protocols for chest pain, stroke, and pediatric respiratory distress.
-4. **Operations & Governance Portal:**
-   - Document ingestion pipeline with automated BGE-M3 paragraph chunking.
+4. **Operations & Governance Portal (`ADMIN_TOKEN` Protected):**
+   - Document ingestion pipeline with automated paragraph chunking and operator-attributed approval.
    - Reviewer queue for user feedback, outdated citation reports, and automated regression test generation.
-   - 100% pass rate on safety evaluation benchmark test suite.
+   - Automated clinical safety evaluation benchmark suite (`/api/tools/eval/run`).
 
 ---
 
