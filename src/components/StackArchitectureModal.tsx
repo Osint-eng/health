@@ -120,7 +120,7 @@ export const StackArchitectureModal: React.FC<StackArchitectureModalProps> = ({
             <span className="text-slate-400">→</span>
             <span className="bg-white px-2 py-1 rounded border border-teal-300 text-teal-900 font-bold shrink-0">🧠 Gemini 4 Hydrogen</span>
             <span className="text-slate-400">→</span>
-            <span className="bg-white px-2 py-1 rounded border border-slate-200 shrink-0">🔊 PCM WAV / TTS</span>
+            <span className="bg-white px-2 py-1 rounded border border-slate-200 shrink-0">🔊 WebSpeech / Gemini TTS</span>
           </div>
         </div>
 

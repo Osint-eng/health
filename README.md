@@ -54,11 +54,10 @@ The application runs locally on **http://localhost:3000**.
 
 | Component | Technology | Technical Architecture & Implementation Details | Role in Arogya Voice |
 | :--- | :--- | :--- | :--- |
-| **Hearing (ASR)** | **WebSpeech + Whisper Endpoint** | Browser Web Speech API live streaming transcription with acoustic waveform feedback, backed by a `/api/speech/transcribe` Whisper-compatible endpoint for audio capture payloads. | Transcribes speech in English and Indic accents (Telugu) with word-level confidence and live transcript review before submission. |
-| **Speaking (TTS)** | **16-bit PCM WAV Synth & WebSpeech** | Dual-engine acoustic architecture: Server generates real 16-bit PCM binary RIFF/WAVE audio buffers (`audio/wav`, 22050 Hz) at `/api/speech/synthesize` & `/api/speech/stream`, paired with instant browser WebSpeech playback. | Crisp, low-latency speech synthesis in English and Telugu with speed control (0.8x, 1.0x, 1.2x) and pause/stop controls. |
-| **Brain (Cloud)** | **Gemini 4 Hydrogen (`gemini-4-hydrogen`)** | `@google/genai` TypeScript SDK (`ThinkingLevel.LOW`, abortable 5s timeout) conditioned by deterministic Evidence Gates: strict source-only synthesis, refusal-first on weak evidence, emergency triage, and clinical abstention. Verified live via `GET /api/health`. | Generates concise, plain-language summaries strictly bounded by approved source chunks and post-checked for ungrounded numbers/units. |
-| **Retrieval Engine** | **Hybrid Subword + Synonym Lexical Index** | In-memory 1024-dim subword cosine index paired with whole-word clinical entity verification, ~115-entry English/Telugu medical synonym expansion, and stopword-filtered lexical overlap. | Sub-20ms reproducible retrieval matching English and Telugu inquiries to official WHO, PAHO, and PM-JAY chunks with concept coverage scoring. |
-| **Edge / Streaming Adapters** | **Ollama & Pipecat Patterns (Adapter-Ready)** | Open standard HTTP adapter interface (`/api/generate` schema) for offline Ollama Llama 3.2 edge nodes and event-driven Pipecat VAD audio chunking patterns. | Ready for offline PHC deployments and streaming audio orchestration without modifying core RAG contracts. |
+| **Hearing (ASR)** | **WebSpeech + Gemini 3.5 Transcribe** | Browser Web Speech API live streaming transcription with acoustic waveform feedback, backed by `/api/speech/transcribe` (`gemini-3.5-transcribe`) when pre-recorded audio is uploaded. | Transcribes speech in English and Telugu with live transcript review before submission. |
+| **Speaking (TTS)** | **WebSpeech + Gemini 3.8 Flash Lite TTS** | Native sentence-chunked browser `window.speechSynthesis` (default), paired with optional server-side Gemini TTS (`gemini-3.8-flash-lite-tts` WAV) at `/api/speech/synthesize`. | Spoken output in English and Telugu with speed control (0.75x, 1.0x, 1.25x), pause/stop, and clear text fallback when browser lacks a Telugu voice. |
+| **Brain (Cloud / Local)** | **Gemini 4 Hydrogen / Local Ollama** | `@google/genai` TypeScript SDK (`ThinkingLevel.LOW`, abortable 5s timeout) or switchable local Ollama `/api/chat` adapter, conditioned by deterministic Evidence Gates. Verified live via `GET /api/health`. | Generates concise, plain-language summaries strictly bounded by approved source chunks and post-checked for ungrounded numbers/units. |
+| **Retrieval Engine** | **Hybrid Subword + Synonym Lexical Index** | In-memory subword hashing cosine index paired with whole-word clinical entity verification, ~115-entry English/Telugu medical synonym expansion, and stopword-filtered lexical overlap. | Sub-20ms reproducible retrieval matching English and Telugu inquiries to official WHO, PAHO, and PM-JAY chunks with concept coverage scoring. |
 | **Persistent Store** | **Atomic Temp-File + WAL Store** | Atomic temp-file + `fsync` + `rename` snapshots (`data/arogya_store.json`) paired with an append-only message WAL (`data/messages_wal.ndjson`), corrupt-file quarantine, `100 KB` request cap, and `1,000`-char message cap. | Crash-safe persistence surviving server restarts without external database setup or full-store rewrites per message. |
 | **Auth & Medical ID** | **Session Isolation + Emergency Medical ID** | Session-scoped storage (`X-Session-Token`), `ADMIN_TOKEN`-gated admin/eval routes, plus local Sign In & custom **Emergency Medical ID** card (Blood Group, Allergies, Chronic Conditions, Emergency Contact, ABHA ID). | Keeps visitor sessions isolated while surfacing life-saving Medical ID details during urgent triage. |
 
@@ -128,7 +127,7 @@ To experience all major architectural layers and safety guardrails in 120 second
 2. **Review the Grounded Output:**
    - Notice **Evidence Strength: Strong** and the **Cosine Match · Hybrid Subword + Lexical Retrieval** score badge.
    - Read the exact supporting excerpt quoted directly from the **WHO Global Health Observatory** guidelines.
-   - Click **"Play Audio"**: listen to playback, toggle between **Server PCM WAV** and **WebSpeech**, and test speed controls (`0.8x`, `1.0x`, `1.2x`).
+   - Click **"Read Aloud"**: listen to playback, toggle between **WebSpeech** and **Gemini TTS**, and test speed controls (`0.75x`, `1.0x`, `1.25x`).
 
 ### Step 3: Weak-Evidence Hedging & Missing-Evidence Refusal
 1. Test **Weak / Unproven Claim** handling by asking:  
@@ -152,9 +151,9 @@ To experience all major architectural layers and safety guardrails in 120 second
    - Status flashes: `Possible urgent situation — seek immediate help`.
    - Displays prominent dialers for **108 (National Ambulance)** and **112 (Emergency Response)** alongside the active user's **Emergency Medical ID Card** (Blood Group, Allergies, Emergency Contact).
 
-### Step 6: Automated 9-Probe Clinical & Safety Benchmark (Admin Tab)
-1. Navigate to the **Admin / Governance** tab and click **"Run Live Benchmark Suite"**.
-2. Executes **9 live probes** (Strong Grounding, PM-JAY, Weak Evidence Hedging, Missing Evidence Refusal, Prescription Abstention, Emergency Triage, and Telugu Grounding) directly against the active backend gates.
+### Step 6: Automated 10-Probe Clinical & Safety Benchmark (Admin Tab)
+1. Navigate to the **Admin / Governance** tab and click **"Run Live Benchmark"**.
+2. Executes **10 live probes (8 English + 2 Telugu)** — covering Strong Grounding, PM-JAY, Weak Evidence Hedging, Missing Evidence Refusal, Prescription Abstention, and Emergency Triage — directly through the active pipeline and LLM path, verifying both `expected_status` and `expected_source`.
 3. Click **"Reset Demo"** anytime to restore `data/arogya_store.json` to its pristine baseline.
 
 ---
@@ -164,29 +163,29 @@ To experience all major architectural layers and safety guardrails in 120 second
 Arogya Voice implements a multi-tier speech loop designed to work reliably across desktop, mobile, and low-connectivity environments:
 
 ```
-[User Voice] ──> 🎤 Whisper ASR / WebSpeech ──> [Text Transcript]
-                                                        │
-                                                        ▼
-                                            [Hybrid Subword + Lexical Index]
-                                            Approved Guideline Retrieval
-                                                        │
-                                                        ▼
-                                            [Gemini 4 Hydrogen]
-                                            Grounded Clinical RAG
-                                                        │
-                                                        ▼
-[Spoken Answer] <── 🔊 Piper Neural Voices <── [Synthesized Text]
+[User Voice] ──> 🎤 WebSpeech ASR / Gemini 3.5 Transcribe ──> [Text Transcript]
+                                                                      │
+                                                                      ▼
+                                                          [Hybrid Subword + Lexical Index]
+                                                          Approved Guideline Retrieval
+                                                                      │
+                                                                      ▼
+                                                          [Gemini 4 Hydrogen / Ollama]
+                                                          Grounded Clinical RAG
+                                                                      │
+                                                                      ▼
+[Spoken Answer] <── 🔊 WebSpeech / Gemini TTS <─────────── [Synthesized Text]
 ```
 
 1. **Hearing Engine & Fallback:**
-   - **Real-Time Web Speech:** Streams speech recognition with live syllable transcription and visual waveform animations in Chrome, Edge, and Android WebViews.
-   - **Server-Side Whisper Endpoint:** `/api/speech/transcribe` provides structured transcription with word-level timestamps and acoustic confidence ratings.
-   - **Keyboard / Mobile Type Fallback:** For noisy community environments or browsers without microphone permissions, full text input with Telugu phonetic support is always available.
+   - **Real-Time Web Speech:** Streams speech recognition with live transcription and visual waveform animations in supported browsers.
+   - **Gemini Audio Transcription:** `/api/speech/transcribe` sends uploaded audio payloads to `gemini-3.5-transcribe` and returns an error if audio is missing or the API is unavailable.
+   - **Keyboard / Mobile Type Fallback:** Full text input (`1,000`-char limit) is always available.
 
-2. **Speaking Engine & Dual-Engine Fallback:**
-   - **Piper Neural WAV Engine (`audio/wav`):** The server synthesizes raw 16-bit PCM RIFF/WAVE audio streams (22050 Hz mono) on-the-fly at `/api/speech/synthesize` (base64 data URI) and `/api/speech/stream` (binary chunked stream). It features authentic acoustic formants and prosodic inflections for both English and Telugu.
-   - **Client-Side WebSpeech Engine:** High-performance native browser synthesis using `window.speechSynthesis` for zero-bandwidth playback in low-connectivity rural settings.
-   - **Interactive Switcher:** Users and judges can dynamically toggle between **Piper Neural WAV** and **WebSpeech** via the engine pill on any answer card, and select speech rates of `0.8x`, `1.0x`, or `1.2x`.
+2. **Speaking Engine & Fallback:**
+   - **Client-Side WebSpeech Engine (Default):** Native sentence-chunked browser playback using `window.speechSynthesis` (with an explicit notice when a desktop browser has no Telugu voice).
+   - **Gemini TTS (`gemini-3.8-flash-lite-tts`):** `/api/speech/synthesize` generates WAV speech via Gemini when toggled to **Gemini TTS**, falling back cleanly to browser `speechSynthesis` if unavailable.
+   - **Interactive Switcher:** Users can toggle between **WebSpeech** and **Gemini TTS** via the engine pill on any answer card, and select speech rates of `0.75x`, `1.0x`, or `1.25x`.
 
 ---
 

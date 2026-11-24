@@ -9,7 +9,7 @@ interface AudioPlayerProps {
   language: Language;
   defaultSpeed?: number;
   className?: string;
-  preferredEngine?: 'piper' | 'browser';
+  preferredEngine?: 'browser' | 'gemini_tts';
 }
 
 export const AudioPlayer: React.FC<AudioPlayerProps> = ({
@@ -17,12 +17,12 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   language,
   defaultSpeed = 1.0,
   className = '',
-  preferredEngine = 'piper',
+  preferredEngine = 'browser',
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
   const [speed, setSpeed] = useState<number>(defaultSpeed);
-  const [activeEngine, setActiveEngine] = useState<'piper' | 'browser'>(preferredEngine);
+  const [activeEngine, setActiveEngine] = useState<'browser' | 'gemini_tts'>(preferredEngine);
   const [speechNotice, setSpeechNotice] = useState<string | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -44,13 +44,11 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
     setIsPlaying(false);
   };
 
-  const playPiperAudio = async (currentSpeed: number) => {
+  const playGeminiTtsAudio = async (currentSpeed: number) => {
     setSpeechNotice(null);
     setIsLoadingAudio(true);
     try {
-      // Fetch real acoustic WAV binary from server
-      const voice = isTe ? 'te_IN-indic-v1' : 'en_US-lessac-medium';
-      const data = await api.synthesizePiper(textToSpeak, voice, currentSpeed);
+      const data = await api.synthesizeSpeech(textToSpeak, language);
 
       if (data && data.audio_base64) {
         if (!audioRef.current) {
@@ -62,26 +60,31 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
         audioRef.current.playbackRate = currentSpeed;
         audioRef.current.onended = () => setIsPlaying(false);
         audioRef.current.onerror = () => {
-          console.warn('Audio element error, falling back to Web Speech API');
-          fallbackToBrowserSpeech(currentSpeed);
+          console.warn('Gemini TTS audio playback failed, falling back to browser SpeechSynthesis');
+          playBrowserSpeech(currentSpeed, 'Gemini TTS audio playback failed; using browser SpeechSynthesis.');
         };
 
         await audioRef.current.play();
         setIsPlaying(true);
-        setActiveEngine('piper');
+        setActiveEngine('gemini_tts');
       } else {
-        fallbackToBrowserSpeech(currentSpeed);
+        playBrowserSpeech(currentSpeed, 'Gemini TTS returned no audio; using browser SpeechSynthesis.');
       }
-    } catch (err) {
-      console.warn('Piper synthesis fetch error, falling back to Web Speech:', err);
-      fallbackToBrowserSpeech(currentSpeed);
+    } catch (err: any) {
+      console.warn('Gemini TTS unavailable, falling back to browser SpeechSynthesis:', err);
+      playBrowserSpeech(
+        currentSpeed,
+        isTe
+          ? 'Gemini TTS అందుబాటులో లేదు — బ్రౌజర్ వాయిస్ ఉపయోగించబడుతోంది.'
+          : `${err?.message || 'Gemini TTS unavailable'} — using browser SpeechSynthesis.`
+      );
     } finally {
       setIsLoadingAudio(false);
     }
   };
 
-  const fallbackToBrowserSpeech = (currentSpeed: number) => {
-    setSpeechNotice(null);
+  const playBrowserSpeech = (currentSpeed: number, fallbackNotice?: string) => {
+    setSpeechNotice(fallbackNotice || null);
     setActiveEngine('browser');
     setIsPlaying(true);
     speechSynthesizer.speak(
@@ -103,10 +106,10 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
     if (isPlaying) {
       stopAllAudio();
     } else {
-      if (activeEngine === 'piper') {
-        playPiperAudio(speed);
+      if (activeEngine === 'gemini_tts') {
+        playGeminiTtsAudio(speed);
       } else {
-        fallbackToBrowserSpeech(speed);
+        playBrowserSpeech(speed);
       }
     }
   };
@@ -121,17 +124,17 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
     setSpeed(newSpeed);
 
     if (isPlaying) {
-      if (activeEngine === 'piper' && audioRef.current) {
+      if (activeEngine === 'gemini_tts' && audioRef.current) {
         audioRef.current.playbackRate = newSpeed;
       } else {
         speechSynthesizer.stop();
-        fallbackToBrowserSpeech(newSpeed);
+        playBrowserSpeech(newSpeed);
       }
     }
   };
 
   const toggleEngine = () => {
-    const nextEngine = activeEngine === 'piper' ? 'browser' : 'piper';
+    const nextEngine = activeEngine === 'browser' ? 'gemini_tts' : 'browser';
     setActiveEngine(nextEngine);
     setSpeechNotice(null);
     if (isPlaying) {
@@ -197,15 +200,15 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
         <button
           type="button"
           onClick={toggleEngine}
-          title={`Click to switch between Piper Acoustic WAV and Browser Speech. Current: ${activeEngine.toUpperCase()}`}
+          title={`Switch between Browser WebSpeech and Gemini TTS. Current: ${activeEngine === 'gemini_tts' ? 'Gemini TTS' : 'WebSpeech'}`}
           className={`px-2 py-0.5 text-[10px] font-bold rounded-md border flex items-center space-x-1 transition-all ${
-            activeEngine === 'piper'
+            activeEngine === 'gemini_tts'
               ? 'bg-teal-50 border-teal-300 text-teal-800'
               : 'bg-slate-50 border-slate-200 text-slate-600'
           }`}
         >
           <Volume2 className="w-2.5 h-2.5 text-teal-700" />
-          <span>{activeEngine === 'piper' ? 'Piper WAV' : 'WebSpeech'}</span>
+          <span>{activeEngine === 'gemini_tts' ? 'Gemini TTS' : 'WebSpeech'}</span>
         </button>
       </div>
 

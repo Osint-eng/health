@@ -348,7 +348,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ language, onResetDemoData 
               <div className="text-2xl font-extrabold text-slate-900">
                 {metrics?.approved_documents_count || 4}
               </div>
-              <div className="text-[11px] text-slate-400 mt-1">Active in dense vector index</div>
+              <div className="text-[11px] text-slate-400 mt-1">Active in hybrid lexical index</div>
             </div>
 
             <div className="p-4 bg-white rounded-2xl border border-slate-200 shadow-xs">
@@ -390,7 +390,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ language, onResetDemoData 
             </h3>
 
             <div className="p-4 bg-slate-50 rounded-2xl text-xs font-mono text-slate-700 leading-relaxed overflow-x-auto">
-              Draft → Extracted → Needs review → Approved → Indexed (1024-Dim Vector Store)
+              Draft → Extracted → Needs review → Approved → Indexed (In-Memory Hybrid Index)
               <br />
               &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↳ Rejected (Excluded from search)
               <br />
@@ -416,7 +416,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ language, onResetDemoData 
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 mt-1">
-                  Executes 9 live inquiries against the dense vector index, evidence-strength gates, emergency triage, and dosage abstention boundaries.
+                  Executes 10 live English &amp; Telugu inquiries through the full safety, retrieval, LLM, and grounding pipeline.
                 </p>
               </div>
 
@@ -430,7 +430,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ language, onResetDemoData 
                   {benchmarking ? (
                     <>
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Executing 9 Tests...</span>
+                      <span>Executing 10 Probes...</span>
                     </>
                   ) : (
                     <>
@@ -448,24 +448,28 @@ export const AdminPage: React.FC<AdminPageProps> = ({ language, onResetDemoData 
                 {/* Benchmark Score Cards */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                   <div className="p-3 bg-teal-50/70 border border-teal-200 rounded-xl">
-                    <div className="text-[10px] font-bold text-teal-800 uppercase">Groundedness</div>
+                    <div className="text-[10px] font-bold text-teal-800 uppercase">Overall Pass Rate</div>
                     <div className="text-xl font-extrabold text-teal-900">{benchmarkResult.groundedness_score}%</div>
-                    <div className="text-[10px] text-teal-700">Source verified</div>
+                    <div className="text-[10px] text-teal-700">
+                      {benchmarkResult.passed_tests}/{benchmarkResult.total_tests} status + source matched
+                    </div>
                   </div>
                   <div className="p-3 bg-teal-50/70 border border-teal-200 rounded-xl">
-                    <div className="text-[10px] font-bold text-teal-800 uppercase">Precision</div>
+                    <div className="text-[10px] font-bold text-teal-800 uppercase">Retrieval Precision</div>
                     <div className="text-xl font-extrabold text-teal-900">{benchmarkResult.retrieval_precision}%</div>
-                    <div className="text-[10px] text-teal-700">1024-dim Cosine</div>
+                    <div className="text-[10px] text-teal-700">Source match: {benchmarkResult.source_accuracy}%</div>
                   </div>
                   <div className="p-3 bg-teal-50/70 border border-teal-200 rounded-xl">
                     <div className="text-[10px] font-bold text-teal-800 uppercase">Abstention Accuracy</div>
                     <div className="text-xl font-extrabold text-teal-900">{benchmarkResult.abstention_accuracy}%</div>
-                    <div className="text-[10px] text-teal-700">Zero dosage drift</div>
+                    <div className="text-[10px] text-teal-700">Safety &amp; refusal probes</div>
                   </div>
                   <div className="p-3 bg-teal-50/70 border border-teal-200 rounded-xl">
                     <div className="text-[10px] font-bold text-teal-800 uppercase">Avg Latency</div>
                     <div className="text-xl font-extrabold text-teal-900">{benchmarkResult.avg_latency_ms} ms</div>
-                    <div className="text-[10px] text-teal-700">Real pipeline execution</div>
+                    <div className="text-[10px] text-teal-700">
+                      LLM: {benchmarkResult.llm_probes_used} live / {benchmarkResult.llm_probes_fallback} fallback
+                    </div>
                   </div>
                 </div>
 
@@ -477,12 +481,19 @@ export const AdminPage: React.FC<AdminPageProps> = ({ language, onResetDemoData 
                       className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
                     >
                       <div className="truncate pr-2">
-                        <div className="font-semibold text-slate-900 truncate">
-                          "{test.question}"
+                        <div className="font-semibold text-slate-900 truncate flex items-center gap-1.5">
+                          <span className="px-1.5 py-0.2 rounded bg-slate-200 text-slate-700 text-[10px] font-bold uppercase shrink-0">
+                            {test.language}
+                          </span>
+                          <span className="truncate">"{test.question}"</span>
                         </div>
                         <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-1.5 mt-0.5">
-                          <span className="font-mono text-[10px] text-teal-800 bg-white px-1.5 py-0.5 rounded border border-slate-200">
-                            {test.source}
+                          <span className={`font-mono text-[10px] px-1.5 py-0.5 rounded border ${
+                            test.source_matched
+                              ? 'text-teal-800 bg-white border-slate-200'
+                              : 'text-rose-800 bg-rose-50 border-rose-200'
+                          }`}>
+                            source: {test.source} (expected: {test.expected_source})
                           </span>
                           <span>·</span>
                           <span>Expected: <strong>{test.expected_status}</strong></span>
@@ -496,8 +507,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({ language, onResetDemoData 
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center space-x-1 ${
                           test.passed ? 'bg-teal-100 text-teal-900' : 'bg-rose-100 text-rose-800'
                         }`}>
-                          <CheckCircle2 className="w-3 h-3 text-teal-700" />
-                          <span>PASSED</span>
+                          {test.passed ? (
+                            <CheckCircle2 className="w-3 h-3 text-teal-700" />
+                          ) : (
+                            <AlertTriangle className="w-3 h-3 text-rose-700" />
+                          )}
+                          <span>{test.passed ? 'PASSED' : 'FAILED'}</span>
                         </span>
                       </div>
                     </div>
@@ -506,7 +521,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ language, onResetDemoData 
               </div>
             ) : (
               <div className="p-4 bg-slate-50 border border-slate-200/70 rounded-2xl text-center text-xs text-slate-500">
-                Click <strong>"Run Live Benchmark"</strong> above to test all 7 questions live against the subword vector index and safety gateways.
+                Click <strong>"Run Live Benchmark"</strong> above to execute all 10 English &amp; Telugu probes through the real pipeline and safety gates.
               </div>
             )}
           </div>

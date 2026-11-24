@@ -306,48 +306,42 @@ export const api = {
     return res.json();
   },
 
-  async queryChroma(query: string, collection: string = 'all', top_k: number = 4) {
-    const res = await apiFetch('/api/tools/chroma/query', {
+  async queryRetrievalIndex(query: string, collection: string = 'all', top_k: number = 4) {
+    const res = await apiFetch('/api/tools/retrieval/query', {
       method: 'POST',
       jsonBody: { query, collection, top_k },
     });
-    if (!res.ok) throw new Error('Failed to query ChromaDB');
+    if (!res.ok) throw new Error('Failed to query retrieval index');
     return res.json();
   },
 
-  async embedBgeM3(text: string, language: string = 'en') {
-    const res = await apiFetch('/api/tools/bge-m3/embed', {
+  async computeSubwordVector(text: string, language: string = 'en') {
+    const res = await apiFetch('/api/tools/embeddings/hash', {
       method: 'POST',
       jsonBody: { text, language },
     });
-    if (!res.ok) throw new Error('Failed to run BGE-M3 embedder');
+    if (!res.ok) throw new Error('Failed to compute subword vector');
     return res.json();
   },
 
-  async testWhisper(sampleInput?: string, language: string = 'en') {
-    const res = await apiFetch('/api/tools/whisper/transcribe', {
+  async transcribeAudio(audioBase64: string, mimeType: string, language: string = 'en') {
+    const res = await apiFetch('/api/speech/transcribe', {
       method: 'POST',
-      jsonBody: { sample_input: sampleInput, language },
+      jsonBody: { audio_base64: audioBase64, mime_type: mimeType, language },
     });
-    if (!res.ok) throw new Error('Failed to run Whisper ASR');
-    return res.json();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Audio transcription failed');
+    return data;
   },
 
-  async synthesizePiper(text: string, voice?: string, speed?: number) {
-    const res = await apiFetch('/api/tools/piper/synthesize', {
+  async synthesizeSpeech(text: string, language: Language = 'en') {
+    const res = await apiFetch('/api/speech/synthesize', {
       method: 'POST',
-      jsonBody: { text, voice, speed },
+      jsonBody: { text, language },
     });
-    if (!res.ok) throw new Error('Failed to synthesize with Piper');
-    return res.json();
-  },
-
-  async testPipecatSession() {
-    const res = await apiFetch('/api/tools/pipecat/session', {
-      method: 'POST',
-    });
-    if (!res.ok) throw new Error('Failed to start Pipecat session');
-    return res.json();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Gemini TTS synthesis failed');
+    return data;
   },
 
   async runEvaluationSuite() {

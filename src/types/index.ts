@@ -142,7 +142,7 @@ export interface UserPreferences {
   save_history: boolean;
   retain_audio: boolean;
   contribute_recordings: boolean;
-  speech_engine?: 'piper_stream' | 'browser_native';
+  speech_engine?: 'browser_native' | 'gemini_tts';
 }
 
 export interface FeedbackReport {
@@ -184,13 +184,12 @@ export interface StackComponent {
 
 export interface ToolEngineConfig {
   brain_provider: 'gemini' | 'ollama';
-  hearing_provider: 'whisper' | 'browser' | 'webspeech';
-  speaking_provider: 'piper' | 'browser';
-  retrieval_store: 'chromadb';
-  embeddings_engine: 'bge_m3';
-  pipeline_orchestrator: 'pipecat';
-  piper_voice: 'en_US-lessac-medium' | 'en_GB-alan-low' | 'te_IN-indic-v1';
+  hearing_provider: 'browser' | 'gemini_transcribe';
+  speaking_provider: 'browser' | 'gemini_tts';
+  retrieval_store: 'in_memory_hybrid';
+  embeddings_engine: 'subword_hash_1024';
   ollama_endpoint?: string;
+  ollama_model?: string;
   gemini_model?: string;
 }
 
@@ -200,14 +199,21 @@ export interface EvaluationResult {
   groundedness_score: number;
   retrieval_precision: number;
   abstention_accuracy: number;
+  source_accuracy: number;
+  llm_probes_used: number;
+  llm_probes_fallback: number;
   avg_latency_ms: number;
   completed_at: string;
   test_runs: Array<{
     question: string;
+    language: Language;
     expected_status: string;
     actual_status: string;
-    passed: boolean;
+    expected_source: string;
     source: string;
+    source_matched: boolean;
+    used_llm: boolean;
+    passed: boolean;
     latency_ms: number;
   }>;
 }
