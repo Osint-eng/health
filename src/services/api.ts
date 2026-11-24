@@ -347,6 +347,7 @@ export const api = {
   async runEvaluationSuite() {
     const res = await apiFetch('/api/tools/eval/run', {
       method: 'POST',
+      admin: true,
     });
     if (!res.ok) throw new Error('Failed to run evaluation suite');
     return res.json();

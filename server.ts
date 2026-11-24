@@ -35,6 +35,7 @@ const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.basename(__dirname) === 'dist' ? path.resolve(__dirname, '..') : __dirname;
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
 const MAX_MESSAGE_LENGTH = 1000;
 const MAX_ADMIN_DOC_LENGTH = 50000;
@@ -48,15 +49,24 @@ const DATA_DIR = path.join(ROOT_DIR, 'data');
 const STORE_PATH = path.join(DATA_DIR, 'arogya_store.json');
 const WAL_PATH = path.join(DATA_DIR, 'messages_wal.ndjson');
 
-// Production Rate Limiter (Sliding Window per non-spoofable remote IP, with periodic cleanup)
+// Production Rate Limiter (Sliding Window per req.ip behind trusted proxy, with periodic cleanup)
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 const RATE_LIMIT_WINDOW_MS = 60000;
 const RATE_LIMIT_MAX_REQUESTS = 100;
+
+const ADMIN_LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const ADMIN_LOGIN_MAX_FAILURES = 5;
+const adminLoginAttempts = new Map<string, { failures: number; windowExpiresAt: number; lockedUntil: number }>();
 
 function pruneExpiredRateLimits(now = Date.now()) {
   for (const [key, entry] of rateLimitMap.entries()) {
     if (now > entry.resetTime) {
       rateLimitMap.delete(key);
+    }
+  }
+  for (const [key, entry] of adminLoginAttempts.entries()) {
+    if (now > entry.windowExpiresAt && now > entry.lockedUntil) {
+      adminLoginAttempts.delete(key);
     }
   }
 }
@@ -78,8 +88,7 @@ function rateLimiter(req: Request, res: Response, next: NextFunction) {
     return next();
   }
 
-  // Do not trust spoofable X-Forwarded-For headers; use the socket peer / Express req.ip
-  const ipKey = String(req.socket.remoteAddress || req.ip || '127.0.0.1');
+  const ipKey = String(req.ip || req.socket.remoteAddress || '127.0.0.1');
   const now = Date.now();
   if (rateLimitMap.size > 1000) {
     pruneExpiredRateLimits(now);
@@ -112,8 +121,12 @@ function truncateWithEllipsis(input: string, maxLen: number): string {
   return clean.length > maxLen ? `${clean.slice(0, maxLen).trimEnd()}...` : clean;
 }
 
-// In-memory cryptographic key for signing anonymous session cookies & admin session Bearer tokens
-const SESSION_SIGNING_SECRET = process.env.SESSION_SECRET?.trim() || crypto.randomBytes(32).toString('hex');
+// Cryptographic key for signing anonymous session cookies & admin session Bearer tokens
+const envSessionSecret = process.env.SESSION_SECRET?.trim();
+if (!envSessionSecret) {
+  console.warn('[Security] SESSION_SECRET is not set; using an ephemeral random signing key. Session cookies and admin tokens will not survive server restarts.');
+}
+const SESSION_SIGNING_SECRET = envSessionSecret || crypto.randomBytes(32).toString('hex');
 
 const DEFAULT_PREFERENCES: UserPreferences = {
   language: 'en',
@@ -155,7 +168,7 @@ const db: DBStore = {
     gemini_model: DEFAULT_GEMINI_MODEL,
   },
   conversations: new Map<string, Conversation>(),
-  documents: [...REVIEWED_DOCUMENTS],
+  documents: structuredClone(REVIEWED_DOCUMENTS),
   adminCredential: null,
   feedbackReports: [],
   ingestionJobs: [
@@ -442,6 +455,24 @@ async function probeOllamaServer(endpoint: string): Promise<{ online: boolean; e
   }
 }
 
+const MAX_PREFERENCE_SESSIONS = 5000;
+
+function getSessionPreferences(sessionId: string): UserPreferences {
+  const existing = db.preferencesBySession.get(sessionId);
+  return existing ? existing : { ...DEFAULT_PREFERENCES };
+}
+
+function setSessionPreferences(sessionId: string, prefs: UserPreferences) {
+  if (!db.preferencesBySession.has(sessionId)) {
+    while (db.preferencesBySession.size >= MAX_PREFERENCE_SESSIONS) {
+      const oldestKey = db.preferencesBySession.keys().next().value;
+      if (!oldestKey) break;
+      db.preferencesBySession.delete(oldestKey);
+    }
+  }
+  db.preferencesBySession.set(sessionId, prefs);
+}
+
 function loadStoreFromDisk() {
   cleanupStaleTempFiles();
   if (fs.existsSync(STORE_PATH)) {
@@ -456,7 +487,7 @@ function loadStoreFromDisk() {
             if ((merged.speech_engine as string) === 'piper_stream') {
               merged.speech_engine = 'browser_native';
             }
-            db.preferencesBySession.set(sid, merged);
+            setSessionPreferences(sid, merged);
           }
         }
       }
@@ -491,8 +522,8 @@ function loadStoreFromDisk() {
       // Support both compact (customDocuments + overrides) and legacy full documents snapshots
       if (Array.isArray(parsed.customDocuments) || parsed.documentOverrides) {
         const overrides = parsed.documentOverrides || {};
-        db.documents = REVIEWED_DOCUMENTS.map((d) =>
-          overrides[d.id] ? { ...d, ...overrides[d.id] } : { ...d }
+        db.documents = structuredClone(REVIEWED_DOCUMENTS).map((d) =>
+          overrides[d.id] ? { ...d, ...overrides[d.id] } : d
         );
         if (Array.isArray(parsed.customDocuments)) {
           for (const cd of parsed.customDocuments) {
@@ -604,16 +635,15 @@ function resolveSessionContext(req: Request, res?: Response, createIfMissing = t
   return { sessionId: newSid, sessionToken: signedToken };
 }
 
-function getSessionPreferences(sessionId: string): UserPreferences {
-  const existing = db.preferencesBySession.get(sessionId);
-  if (existing) return existing;
-  const fresh = { ...DEFAULT_PREFERENCES };
-  db.preferencesBySession.set(sessionId, fresh);
-  return fresh;
+
+const MIN_ADMIN_TOKEN_LENGTH = 12;
+
+if (process.env.ADMIN_TOKEN && process.env.ADMIN_TOKEN.trim().length > 0 && process.env.ADMIN_TOKEN.trim().length < MIN_ADMIN_TOKEN_LENGTH) {
+  console.warn(`[Security] ADMIN_TOKEN is shorter than ${MIN_ADMIN_TOKEN_LENGTH} characters and will be rejected.`);
 }
 
 function isAdminConfiguredFromEnv(): boolean {
-  return Boolean(process.env.ADMIN_TOKEN && process.env.ADMIN_TOKEN.trim().length > 0);
+  return Boolean(process.env.ADMIN_TOKEN && process.env.ADMIN_TOKEN.trim().length >= MIN_ADMIN_TOKEN_LENGTH);
 }
 
 function constantTimeTokenMatch(a: string, b: string): boolean {
@@ -624,12 +654,14 @@ function constantTimeTokenMatch(a: string, b: string): boolean {
 
 function verifyRawAdminSecret(candidate: string): boolean {
   if (!candidate || typeof candidate !== 'string') return false;
+  const trimmedCandidate = candidate.trim();
+  if (trimmedCandidate.length < MIN_ADMIN_TOKEN_LENGTH) return false;
   const envSecret = process.env.ADMIN_TOKEN?.trim();
-  if (envSecret && envSecret.length > 0) {
-    return constantTimeTokenMatch(candidate.trim(), envSecret);
+  if (envSecret && envSecret.length >= MIN_ADMIN_TOKEN_LENGTH) {
+    return constantTimeTokenMatch(trimmedCandidate, envSecret);
   }
   if (db.adminCredential) {
-    const derived = crypto.scryptSync(candidate.trim(), db.adminCredential.salt, 64);
+    const derived = crypto.scryptSync(trimmedCandidate, db.adminCredential.salt, 64);
     const stored = Buffer.from(db.adminCredential.hash, 'hex');
     if (derived.length !== stored.length) return false;
     return crypto.timingSafeEqual(derived, stored);
@@ -1819,7 +1851,7 @@ app.patch('/api/me/preferences', (req: Request, res: Response) => {
   }
 
   const updated = { ...current, ...sanitizedUpdates };
-  db.preferencesBySession.set(ctx.sessionId, updated);
+  setSessionPreferences(ctx.sessionId, updated);
   saveStoreToDisk();
   res.json({ success: true, session_token: ctx.sessionToken, preferences: updated });
 });
@@ -1862,8 +1894,14 @@ app.get('/api/conversations', (req: Request, res: Response) => {
   res.json(convList);
 });
 
+const VALID_CONVERSATION_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
 // 5. GET /api/conversations/:id
 app.get('/api/conversations/:id', (req: Request, res: Response) => {
+  if (!VALID_CONVERSATION_ID_RE.test(req.params.id || '')) {
+    res.status(400).json({ error: 'Invalid conversation id.' });
+    return;
+  }
   const ctx = resolveSessionContext(req, res, false);
   const conv = db.conversations.get(req.params.id);
   if (!conv || !ctx || conv.session_id !== ctx.sessionId) {
@@ -1875,6 +1913,10 @@ app.get('/api/conversations/:id', (req: Request, res: Response) => {
 
 // 6. DELETE /api/conversations/:id
 app.delete('/api/conversations/:id', (req: Request, res: Response) => {
+  if (!VALID_CONVERSATION_ID_RE.test(req.params.id || '')) {
+    res.status(400).json({ error: 'Invalid conversation id.' });
+    return;
+  }
   const ctx = resolveSessionContext(req, res, false);
   const conv = db.conversations.get(req.params.id);
   if (!conv || !ctx || conv.session_id !== ctx.sessionId) {
@@ -2557,6 +2599,11 @@ Return valid JSON only.`;
 // 9. POST /api/conversations/:id/messages (Core Grounded RAG + Safety Gateway)
 app.post('/api/conversations/:id/messages', async (req: Request, res: Response) => {
   const { id } = req.params;
+  if (!VALID_CONVERSATION_ID_RE.test(id || '')) {
+    res.status(400).json({ error: 'Invalid conversation id.' });
+    return;
+  }
+
   const ctx = resolveSessionContext(req, res, true)!;
   const prefs = getSessionPreferences(ctx.sessionId);
   const rawText = req.body?.text;
@@ -2577,11 +2624,23 @@ app.post('/api/conversations/:id/messages', async (req: Request, res: Response) 
   }
 
   // Scope conversation strictly to caller's session
-  let conv = db.conversations.get(id);
-  if (conv && conv.session_id !== ctx.sessionId) {
+  const existingConv = db.conversations.get(id);
+  if (existingConv && existingConv.session_id !== ctx.sessionId) {
     res.status(404).json({ error: 'Conversation not found' });
     return;
   }
+
+  if (!prefs.save_history) {
+    const result = await evaluateAndGenerateAnswer(text, language, id);
+    res.json(result.message);
+    const current = db.conversations.get(id);
+    if (current && current.session_id === ctx.sessionId) {
+      db.conversations.delete(id);
+    }
+    return;
+  }
+
+  let conv = existingConv;
   if (!conv) {
     conv = {
       id,
@@ -3057,6 +3116,35 @@ const handleGeminiTranscribe = async (req: Request, res: Response) => {
 app.post('/api/speech/transcribe', handleGeminiTranscribe);
 app.post('/api/speech/transcriptions', handleGeminiTranscribe);
 
+function wrapPcm16MonoAsWav(pcmBuffer: Buffer, sampleRate = 24000): Buffer {
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+  const blockAlign = numChannels * (bitsPerSample / 8);
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0, 'ascii');
+  header.writeUInt32LE(36 + pcmBuffer.length, 4);
+  header.write('WAVE', 8, 'ascii');
+  header.write('fmt ', 12, 'ascii');
+  header.writeUInt32LE(16, 16); // PCM subchunk size
+  header.writeUInt16LE(1, 20); // AudioFormat = 1 (PCM)
+  header.writeUInt16LE(numChannels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(bitsPerSample, 34);
+  header.write('data', 36, 'ascii');
+  header.writeUInt32LE(pcmBuffer.length, 40);
+  return Buffer.concat([header, pcmBuffer]);
+}
+
+function parseSampleRateFromMimeType(mimeType: string, fallback = 24000): number {
+  const match = mimeType.match(/(?:^|[;\s])rate=(\d+)/i);
+  if (!match) return fallback;
+  const rate = Number(match[1]);
+  return Number.isInteger(rate) && rate >= 8000 && rate <= 192000 ? rate : fallback;
+}
+
 // POST /api/speech/synthesize (Real Gemini 3.8 Flash Lite TTS — WAV output; never sine-wave buzz)
 app.post('/api/speech/synthesize', async (req: Request, res: Response) => {
   const { text = '', language = 'en' } = req.body || {};
@@ -3111,7 +3199,9 @@ app.post('/api/speech/synthesize', async (req: Request, res: Response) => {
       },
     });
 
-    const base64Audio = response?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    const inlineData = response?.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+    const base64Audio = inlineData?.data;
+    const returnedMimeType = String(inlineData?.mimeType || '').trim();
     if (!base64Audio || typeof base64Audio !== 'string') {
       res.status(502).json({
         error: 'Gemini TTS returned no audio data.',
@@ -3120,13 +3210,29 @@ app.post('/api/speech/synthesize', async (req: Request, res: Response) => {
       return;
     }
 
+    let outMimeType = 'audio/wav';
+    let outBase64Audio = base64Audio;
+    const rawAudioBytes = Buffer.from(base64Audio, 'base64');
+    const alreadyHasWavHeader =
+      rawAudioBytes.length >= 12 &&
+      rawAudioBytes.subarray(0, 4).toString('ascii') === 'RIFF' &&
+      rawAudioBytes.subarray(8, 12).toString('ascii') === 'WAVE';
+
+    if (!alreadyHasWavHeader && /pcm|audio\/l16/i.test(returnedMimeType)) {
+      const sampleRate = parseSampleRateFromMimeType(returnedMimeType, 24000);
+      outBase64Audio = wrapPcm16MonoAsWav(rawAudioBytes, sampleRate).toString('base64');
+      outMimeType = 'audio/wav';
+    } else if (!alreadyHasWavHeader && returnedMimeType && !/wav/i.test(returnedMimeType)) {
+      outMimeType = returnedMimeType.split(';')[0].trim() || 'audio/wav';
+    }
+
     res.json({
       engine: 'Gemini TTS',
       model: 'gemini-3.8-flash-lite-tts',
       voice: 'Kore',
       language: isTe ? 'te' : 'en',
-      audio_format: 'audio/wav',
-      audio_base64: `data:audio/wav;base64,${base64Audio}`,
+      audio_format: outMimeType,
+      audio_base64: `data:${outMimeType};base64,${outBase64Audio}`,
       text_processed: cleanText,
     });
   } catch (err: any) {
@@ -3141,8 +3247,8 @@ app.post('/api/speech/synthesize', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/tools/eval/run (Real-Pipeline 10-Probe English + Telugu Benchmark)
-app.post('/api/tools/eval/run', async (_req: Request, res: Response) => {
+// POST /api/tools/eval/run (Protected with ADMIN_TOKEN — Real-Pipeline 10-Probe EN+TE Benchmark)
+app.post('/api/tools/eval/run', requireAdminAuth, async (_req: Request, res: Response) => {
   const benchmarkProbes: Array<{
     question: string;
     language: Language;
@@ -3335,6 +3441,12 @@ app.get('/api/admin/auth/status', (req: Request, res: Response) => {
 });
 
 app.post('/api/admin/auth/bootstrap', (req: Request, res: Response) => {
+  if (process.env.NODE_ENV === 'production' && !isAdminConfiguredFromEnv()) {
+    res.status(403).json({
+      error: 'ADMIN_TOKEN must be set as an environment secret in production.',
+    });
+    return;
+  }
   if (isAdminConfiguredFromEnv() || db.adminCredential) {
     res.status(409).json({
       error: 'Admin credential is already configured. Sign in with your ADMIN_TOKEN.',
@@ -3342,8 +3454,8 @@ app.post('/api/admin/auth/bootstrap', (req: Request, res: Response) => {
     return;
   }
   const { token } = req.body || {};
-  if (!token || typeof token !== 'string' || token.trim().length < 8) {
-    res.status(400).json({ error: 'Admin token / passcode must be at least 8 characters.' });
+  if (!token || typeof token !== 'string' || token.trim().length < MIN_ADMIN_TOKEN_LENGTH) {
+    res.status(400).json({ error: `Admin token / passcode must be at least ${MIN_ADMIN_TOKEN_LENGTH} characters.` });
     return;
   }
 
@@ -3366,12 +3478,37 @@ app.post('/api/admin/auth/login', (req: Request, res: Response) => {
     });
     return;
   }
+
+  const ipKey = String(req.ip || req.socket.remoteAddress || '127.0.0.1');
+  const now = Date.now();
+  const existing = adminLoginAttempts.get(ipKey);
+  if (existing && existing.lockedUntil > now) {
+    res.status(429).json({
+      error: 'Too many failed admin login attempts. Please wait 15 minutes before trying again.',
+      retry_after_seconds: Math.ceil((existing.lockedUntil - now) / 1000),
+    });
+    return;
+  }
+
   const { token } = req.body || {};
   if (!token || typeof token !== 'string' || !verifyRawAdminSecret(token)) {
+    const failures =
+      existing && now <= existing.windowExpiresAt
+        ? existing.failures + 1
+        : 1;
+    const windowExpiresAt =
+      existing && now <= existing.windowExpiresAt
+        ? existing.windowExpiresAt
+        : now + ADMIN_LOGIN_WINDOW_MS;
+    const lockedUntil =
+      failures >= ADMIN_LOGIN_MAX_FAILURES ? now + ADMIN_LOGIN_WINDOW_MS : 0;
+    adminLoginAttempts.set(ipKey, { failures, windowExpiresAt, lockedUntil });
+
     res.status(401).json({ error: 'Invalid admin token.' });
     return;
   }
 
+  adminLoginAttempts.delete(ipKey);
   res.json({
     success: true,
     admin_token: issueAdminBearerToken(),
@@ -3381,7 +3518,7 @@ app.post('/api/admin/auth/login', (req: Request, res: Response) => {
 // POST /api/demo/reset (Protected with ADMIN_TOKEN — resets caller session & corpus cleanly)
 app.post('/api/demo/reset', requireAdminAuth, (req: Request, res: Response) => {
   const ctx = resolveSessionContext(req, res, true)!;
-  db.preferencesBySession.set(ctx.sessionId, { ...DEFAULT_PREFERENCES });
+  setSessionPreferences(ctx.sessionId, { ...DEFAULT_PREFERENCES });
 
   for (const [id, conv] of db.conversations.entries()) {
     if (conv.session_id === ctx.sessionId) {
@@ -3505,7 +3642,7 @@ app.post('/api/demo/reset', requireAdminAuth, (req: Request, res: Response) => {
   db.conversations.set(seedConvId, seedConv);
 
   // Restore 7 verified documents
-  db.documents = [...REVIEWED_DOCUMENTS];
+  db.documents = structuredClone(REVIEWED_DOCUMENTS);
   chunkVectorCache.clear();
 
   // Restore feedback reports referencing real messages in seedConv

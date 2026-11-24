@@ -221,17 +221,17 @@ export const AskPage: React.FC<AskPageProps> = ({
           language
         );
         onUpdateConversation(newConv);
-        await executeQuery(newConv.id, textToSend);
+        await executeQuery(newConv.id, textToSend, newConv);
       } catch (err: any) {
         setAssistantState('error');
         setErrorMessage(err.message || 'Failed to create conversation session');
       }
     } else {
-      await executeQuery(currentConversation.id, textToSend);
+      await executeQuery(currentConversation.id, textToSend, currentConversation);
     }
   };
 
-  const executeQuery = async (convId: string, text: string) => {
+  const executeQuery = async (convId: string, text: string, fallbackConv?: Conversation) => {
     setInputText('');
     transcriptRef.current = '';
     setTranscriptDraft('');
@@ -250,9 +250,38 @@ export const AskPage: React.FC<AskPageProps> = ({
 
       setAssistantState('validating_answer');
 
-      // Refresh conversation state
-      const updated = await api.getConversation(convId);
-      onUpdateConversation(updated);
+      // Refresh conversation state (or update ephemeral client state when save_history is off)
+      try {
+        const updated = await api.getConversation(convId);
+        onUpdateConversation(updated);
+      } catch {
+        const userMsg: Message = {
+          id: `msg_u_${Date.now()}`,
+          conversation_id: convId,
+          role: 'user',
+          text,
+          language,
+          status: 'supported_by_reviewed_sources',
+          citations: [],
+          created_at: new Date().toISOString(),
+        };
+        const baseConv: Conversation = fallbackConv || (currentConversation && currentConversation.id === convId
+          ? currentConversation
+          : {
+              id: convId,
+              title: text.length > 36 ? text.substring(0, 36).trimEnd() + '...' : text,
+              language,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              messages: [],
+              is_guest: true,
+            });
+        onUpdateConversation({
+          ...baseConv,
+          updated_at: new Date().toISOString(),
+          messages: [...baseConv.messages, userMsg, assistantMsg],
+        });
+      }
 
       setAssistantState('ready_speaking');
       // Auto read answer aloud via TTS
